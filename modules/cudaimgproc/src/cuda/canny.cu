@@ -91,6 +91,42 @@ namespace cv { namespace cuda { namespace device
 
 namespace canny
 {
+#ifdef DAS_ADAPT
+    __device__ __forceinline__ int clampCoord(int v, int upper)
+    {
+        return v < 0 ? 0 : (v >= upper ? upper - 1 : v);
+    }
+
+    __device__ __forceinline__ uchar loadReplicated(const PtrStepSzb src, int y, int x)
+    {
+        const int yy = clampCoord(y, src.rows);
+        const int xx = clampCoord(x, src.cols);
+        return src.ptr(yy)[xx];
+    }
+
+    template <class Norm>
+    __global__ void calcMagnitudeKernel(PtrStepSzb srcWhole, int xoff, int yoff, PtrStepi dx, PtrStepi dy, PtrStepSzf mag, const Norm norm)
+    {
+        const int x = blockIdx.x * blockDim.x + threadIdx.x;
+        const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+        if (y >= mag.rows || x >= mag.cols)
+            return;
+
+        const int sx = x + xoff;
+        const int sy = y + yoff;
+
+        int dxVal = (loadReplicated(srcWhole, sy - 1, sx + 1) + 2 * loadReplicated(srcWhole, sy, sx + 1) + loadReplicated(srcWhole, sy + 1, sx + 1))
+                  - (loadReplicated(srcWhole, sy - 1, sx - 1) + 2 * loadReplicated(srcWhole, sy, sx - 1) + loadReplicated(srcWhole, sy + 1, sx - 1));
+        int dyVal = (loadReplicated(srcWhole, sy + 1, sx - 1) + 2 * loadReplicated(srcWhole, sy + 1, sx) + loadReplicated(srcWhole, sy + 1, sx + 1))
+                  - (loadReplicated(srcWhole, sy - 1, sx - 1) + 2 * loadReplicated(srcWhole, sy - 1, sx) + loadReplicated(srcWhole, sy - 1, sx + 1));
+
+        dx(y, x) = dxVal;
+        dy(y, x) = dyVal;
+
+        mag(y, x) = norm(dxVal, dyVal);
+    }
+#else
     template <class Norm>
     __global__ void calcMagnitudeKernel(cv::cudev::TextureOffPtr<uchar> texSrc, PtrStepi dx, PtrStepi dy, PtrStepSzf mag, const Norm norm)
     {
@@ -108,11 +144,24 @@ namespace canny
 
         mag(y, x) = norm(dxVal, dyVal);
     }
+#endif
 
     void calcMagnitude(PtrStepSzb srcWhole, int xoff, int yoff, PtrStepSzi dx, PtrStepSzi dy, PtrStepSzf mag, bool L2Grad, cudaStream_t stream)
     {
         const dim3 block(16, 16);
         const dim3 grid(divUp(mag.cols, block.x), divUp(mag.rows, block.y));
+#ifdef DAS_ADAPT
+        if (L2Grad)
+        {
+            L2 norm;
+            calcMagnitudeKernel<<<grid, block, 0, stream>>>(srcWhole, xoff, yoff, dx, dy, mag, norm);
+        }
+        else
+        {
+            L1 norm;
+            calcMagnitudeKernel<<<grid, block, 0, stream>>>(srcWhole, xoff, yoff, dx, dy, mag, norm);
+        }
+#else
         cv::cudev::TextureOff<uchar> texSrc(srcWhole, yoff, xoff);
         if (L2Grad)
         {
@@ -124,6 +173,7 @@ namespace canny
             L1 norm;
             calcMagnitudeKernel<<<grid, block, 0, stream>>>(texSrc, dx, dy, mag, norm);
         }
+#endif
 
         if (stream == NULL)
             cudaSafeCall(cudaDeviceSynchronize());
@@ -148,7 +198,11 @@ namespace canny
 
 namespace canny
 {
+#ifdef DAS_ADAPT
+    __global__ void calcMapKernel(const PtrStepSzf mag, const PtrStepSzi dx, const PtrStepi dy, PtrStepi map, const float low_thresh, const float high_thresh)
+#else
     __global__ void calcMapKernel(cv::cudev::TexturePtr<float> texMag, const PtrStepSzi dx, const PtrStepi dy, PtrStepi map, const float low_thresh, const float high_thresh)
+#endif
     {
         const int CANNY_SHIFT = 15;
         const int TG22 = (int)(0.4142135623730950488016887242097*(1<<CANNY_SHIFT) + 0.5);
@@ -163,14 +217,15 @@ namespace canny
         int dyVal = dy(y, x);
 
         const int s = (dxVal ^ dyVal) < 0 ? -1 : 1;
+#ifdef DAS_ADAPT
+        const float m = mag(y, x);
+#else
         const float m = texMag(y, x);
+#endif
 
         dxVal = ::abs(dxVal);
         dyVal = ::abs(dyVal);
 
-        // 0 - the pixel can not belong to an edge
-        // 1 - the pixel might belong to an edge
-        // 2 - the pixel does belong to an edge
         int edge_type = 0;
 
         if (m > low_thresh)
@@ -182,17 +237,29 @@ namespace canny
 
             if (dyVal < tg22x)
             {
+#ifdef DAS_ADAPT
+                if (m > mag(y, x - 1) && m >= mag(y, x + 1))
+#else
                 if (m > texMag(y, x - 1) && m >= texMag(y, x + 1))
+#endif
                     edge_type = 1 + (int)(m > high_thresh);
             }
             else if(dyVal > tg67x)
             {
+#ifdef DAS_ADAPT
+                if (m > mag(y - 1, x) && m >= mag(y + 1, x))
+#else
                 if (m > texMag(y - 1, x) && m >= texMag(y + 1, x))
+#endif
                     edge_type = 1 + (int)(m > high_thresh);
             }
             else
             {
+#ifdef DAS_ADAPT
+                if (m > mag(y - 1, x - s) && m >= mag(y + 1, x + s))
+#else
                 if (m > texMag(y - 1, x - s) && m >= texMag(y + 1, x + s))
+#endif
                     edge_type = 1 + (int)(m > high_thresh);
             }
         }
@@ -204,8 +271,12 @@ namespace canny
     {
         const dim3 block(16, 16);
         const dim3 grid(divUp(dx.cols, block.x), divUp(dx.rows, block.y));
+#ifdef DAS_ADAPT
+        calcMapKernel<<<grid, block, 0, stream>>>(mag, dx, dy, map, low_thresh, high_thresh);
+#else
         cv::cudev::Texture<float> texMag(mag);
         calcMapKernel<<<grid, block, 0, stream>>>(texMag, dx, dy, map, low_thresh, high_thresh);
+#endif
         if (stream == NULL)
             cudaSafeCall( cudaDeviceSynchronize() );
     }

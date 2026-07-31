@@ -56,6 +56,27 @@ namespace cv { namespace cudev {
 //! @addtogroup cudev
 //! @{
 
+#ifdef DAS_ADAPT
+namespace deriv_detail
+{
+    __device__ __forceinline__ int clampCoord(int v, int upper)
+    {
+        if (upper <= 0)
+            return 0;
+        if (v < 0)
+            return 0;
+        const int hi = upper - 1;
+        return v > hi ? hi : v;
+    }
+
+    template <class SrcPtr>
+    __device__ __forceinline__ typename PtrTraits<SrcPtr>::value_type readClamp(const SrcPtr& src, int rows, int cols, int y, int x)
+    {
+        return src(clampCoord(y, rows), clampCoord(x, cols));
+    }
+}
+#endif
+
 // derivX
 
 template <class SrcPtr> struct DerivXPtr
@@ -162,6 +183,22 @@ template <class SrcPtr> struct SobelXPtrSz : SobelXPtr<SrcPtr>
 {
     int rows, cols;
 
+#ifdef DAS_ADAPT
+    __device__ typename PtrTraits<SrcPtr>::value_type operator ()(int y, int x) const
+    {
+        typedef typename PtrTraits<SrcPtr>::value_type value_type;
+
+        value_type vals[6] =
+        {
+            deriv_detail::readClamp(this->src, rows, cols, y - 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y - 1, x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y    , x - 1), deriv_detail::readClamp(this->src, rows, cols, y    , x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y + 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y + 1, x + 1),
+        };
+
+        return (vals[1] - vals[0]) + 2 * (vals[3] - vals[2]) + (vals[5] - vals[4]);
+    }
+#endif
+
     template <typename T>
     __host__ void assignTo(GpuMat_<T>& dst, Stream& stream = Stream::Null()) const
     {
@@ -179,9 +216,15 @@ __host__ SobelXPtrSz<typename PtrTraits<SrcPtr>::ptr_type> sobelXPtr(const SrcPt
     return s;
 }
 
+#ifdef DAS_ADAPT
+template <class SrcPtr> struct PtrTraits< SobelXPtrSz<SrcPtr> > : PtrTraitsBase<SobelXPtrSz<SrcPtr>, SobelXPtrSz<SrcPtr> >
+{
+};
+#else
 template <class SrcPtr> struct PtrTraits< SobelXPtrSz<SrcPtr> > : PtrTraitsBase<SobelXPtrSz<SrcPtr>, SobelXPtr<SrcPtr> >
 {
 };
+#endif
 
 // sobelY
 
@@ -208,6 +251,21 @@ template <class SrcPtr> struct SobelYPtrSz : SobelYPtr<SrcPtr>
 {
     int rows, cols;
 
+#ifdef DAS_ADAPT
+    __device__ typename PtrTraits<SrcPtr>::value_type operator ()(int y, int x) const
+    {
+        typedef typename PtrTraits<SrcPtr>::value_type value_type;
+
+        value_type vals[6] =
+        {
+            deriv_detail::readClamp(this->src, rows, cols, y - 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y - 1, x), deriv_detail::readClamp(this->src, rows, cols, y - 1, x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y + 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y + 1, x), deriv_detail::readClamp(this->src, rows, cols, y + 1, x + 1)
+        };
+
+        return (vals[3] - vals[0]) + 2 * (vals[4] - vals[1]) + (vals[5] - vals[2]);
+    }
+#endif
+
     template <typename T>
     __host__ void assignTo(GpuMat_<T>& dst, Stream& stream = Stream::Null()) const
     {
@@ -225,9 +283,15 @@ __host__ SobelYPtrSz<typename PtrTraits<SrcPtr>::ptr_type> sobelYPtr(const SrcPt
     return s;
 }
 
+#ifdef DAS_ADAPT
+template <class SrcPtr> struct PtrTraits< SobelYPtrSz<SrcPtr> > : PtrTraitsBase<SobelYPtrSz<SrcPtr>, SobelYPtrSz<SrcPtr> >
+{
+};
+#else
 template <class SrcPtr> struct PtrTraits< SobelYPtrSz<SrcPtr> > : PtrTraitsBase<SobelYPtrSz<SrcPtr>, SobelYPtr<SrcPtr> >
 {
 };
+#endif
 
 // scharrX
 
@@ -255,6 +319,22 @@ template <class SrcPtr> struct ScharrXPtrSz : ScharrXPtr<SrcPtr>
 {
     int rows, cols;
 
+#ifdef DAS_ADAPT
+    __device__ typename PtrTraits<SrcPtr>::value_type operator ()(int y, int x) const
+    {
+        typedef typename PtrTraits<SrcPtr>::value_type value_type;
+
+        value_type vals[6] =
+        {
+            deriv_detail::readClamp(this->src, rows, cols, y - 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y - 1, x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y    , x - 1), deriv_detail::readClamp(this->src, rows, cols, y    , x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y + 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y + 1, x + 1),
+        };
+
+        return 3 * (vals[1] - vals[0]) + 10 * (vals[3] - vals[2]) + 3 * (vals[5] - vals[4]);
+    }
+#endif
+
     template <typename T>
     __host__ void assignTo(GpuMat_<T>& dst, Stream& stream = Stream::Null()) const
     {
@@ -272,9 +352,15 @@ __host__ ScharrXPtrSz<typename PtrTraits<SrcPtr>::ptr_type> scharrXPtr(const Src
     return s;
 }
 
+#ifdef DAS_ADAPT
+template <class SrcPtr> struct PtrTraits< ScharrXPtrSz<SrcPtr> > : PtrTraitsBase<ScharrXPtrSz<SrcPtr>, ScharrXPtrSz<SrcPtr> >
+{
+};
+#else
 template <class SrcPtr> struct PtrTraits< ScharrXPtrSz<SrcPtr> > : PtrTraitsBase<ScharrXPtrSz<SrcPtr>, ScharrXPtr<SrcPtr> >
 {
 };
+#endif
 
 // scharrY
 
@@ -301,6 +387,21 @@ template <class SrcPtr> struct ScharrYPtrSz : ScharrYPtr<SrcPtr>
 {
     int rows, cols;
 
+#ifdef DAS_ADAPT
+    __device__ typename PtrTraits<SrcPtr>::value_type operator ()(int y, int x) const
+    {
+        typedef typename PtrTraits<SrcPtr>::value_type value_type;
+
+        value_type vals[6] =
+        {
+            deriv_detail::readClamp(this->src, rows, cols, y - 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y - 1, x), deriv_detail::readClamp(this->src, rows, cols, y - 1, x + 1),
+            deriv_detail::readClamp(this->src, rows, cols, y + 1, x - 1), deriv_detail::readClamp(this->src, rows, cols, y + 1, x), deriv_detail::readClamp(this->src, rows, cols, y + 1, x + 1)
+        };
+
+        return 3 * (vals[3] - vals[0]) + 10 * (vals[4] - vals[1]) + 3 * (vals[5] - vals[2]);
+    }
+#endif
+
     template <typename T>
     __host__ void assignTo(GpuMat_<T>& dst, Stream& stream = Stream::Null()) const
     {
@@ -318,9 +419,15 @@ __host__ ScharrYPtrSz<typename PtrTraits<SrcPtr>::ptr_type> scharrYPtr(const Src
     return s;
 }
 
+#ifdef DAS_ADAPT
+template <class SrcPtr> struct PtrTraits< ScharrYPtrSz<SrcPtr> > : PtrTraitsBase<ScharrYPtrSz<SrcPtr>, ScharrYPtrSz<SrcPtr> >
+{
+};
+#else
 template <class SrcPtr> struct PtrTraits< ScharrYPtrSz<SrcPtr> > : PtrTraitsBase<ScharrYPtrSz<SrcPtr>, ScharrYPtr<SrcPtr> >
 {
 };
+#endif
 
 // laplacian
 
@@ -370,6 +477,36 @@ template <int ksize, class SrcPtr> struct LaplacianPtrSz : LaplacianPtr<ksize, S
 {
     int rows, cols;
 
+#ifdef DAS_ADAPT
+    __device__ typename PtrTraits<SrcPtr>::value_type operator ()(int y, int x) const
+    {
+        typedef typename PtrTraits<SrcPtr>::value_type value_type;
+
+        if (ksize == 1)
+        {
+            value_type vals[5] =
+            {
+                               deriv_detail::readClamp(this->src, rows, cols, y - 1, x),
+                deriv_detail::readClamp(this->src, rows, cols, y, x - 1), deriv_detail::readClamp(this->src, rows, cols, y, x), deriv_detail::readClamp(this->src, rows, cols, y, x + 1),
+                               deriv_detail::readClamp(this->src, rows, cols, y + 1, x)
+            };
+
+            return (vals[0] + vals[1] + vals[3] + vals[4]) - 4 * vals[2];
+        }
+        else
+        {
+            value_type vals[5] =
+            {
+                deriv_detail::readClamp(this->src, rows, cols, y - 1, x - 1),            deriv_detail::readClamp(this->src, rows, cols, y - 1, x + 1),
+                                                                 deriv_detail::readClamp(this->src, rows, cols, y, x),
+                deriv_detail::readClamp(this->src, rows, cols, y + 1, x - 1),            deriv_detail::readClamp(this->src, rows, cols, y + 1, x + 1)
+            };
+
+            return 2 * (vals[0] + vals[1] + vals[3] + vals[4]) - 8 * vals[2];
+        }
+    }
+#endif
+
     template <typename T>
     __host__ void assignTo(GpuMat_<T>& dst, Stream& stream = Stream::Null()) const
     {
@@ -387,9 +524,15 @@ __host__ LaplacianPtrSz<ksize, typename PtrTraits<SrcPtr>::ptr_type> laplacianPt
     return ptr;
 }
 
+#ifdef DAS_ADAPT
+template <int ksize, class SrcPtr> struct PtrTraits< LaplacianPtrSz<ksize, SrcPtr> > : PtrTraitsBase<LaplacianPtrSz<ksize, SrcPtr>, LaplacianPtrSz<ksize, SrcPtr> >
+{
+};
+#else
 template <int ksize, class SrcPtr> struct PtrTraits< LaplacianPtrSz<ksize, SrcPtr> > : PtrTraitsBase<LaplacianPtrSz<ksize, SrcPtr>, LaplacianPtr<ksize, SrcPtr> >
 {
 };
+#endif
 
 //! @}
 

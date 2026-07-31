@@ -614,8 +614,16 @@ template <typename T> struct magnitude_func : binary_function<T, T, typename fun
 {
     __device__ __forceinline__ typename functional_detail::FloatType<T>::type operator ()(typename TypeTraits<T>::parameter_type a, typename TypeTraits<T>::parameter_type b) const
     {
-        sqrt_func<typename functional_detail::FloatType<T>::type> f;
-        return f(a * a + b * b);
+        typedef typename functional_detail::FloatType<T>::type result_type;
+        sqrt_func<result_type> sqrt_f;
+#ifdef DAS_ADAPT
+        const result_type aa = sqr_func<result_type>()(a);
+        const result_type bb = sqr_func<result_type>()(b);
+        const result_type sum = aa + bb;
+        return sqrt_f(sum);
+#else
+        return sqrt_f(a * a + b * b);
+#endif
     }
 };
 

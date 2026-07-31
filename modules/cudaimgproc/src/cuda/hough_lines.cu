@@ -85,7 +85,7 @@ namespace cv { namespace cuda { namespace device
             }
         }
 
-        __global__ void linesAccumShared(const unsigned int* list, const int count, PtrStepi accum, const float irho, const float theta, const int numrho)
+        __global__ __launch_bounds__(1024) void linesAccumShared(const unsigned int* list, const int count, PtrStepi accum, const float irho, const float theta, const int numrho)
         {
             int* smem = DynamicSharedMem<int>();
 

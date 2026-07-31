@@ -114,9 +114,18 @@ namespace cv { namespace cuda { namespace device
             static void call(PtrStepSz< T > src, PtrStepSz< T > srcWhole, int xoff, int yoff, PtrStepSzf mapx, PtrStepSzf mapy,
                 PtrStepSz< T > dst, const float* borderValue, bool cc20)
             {
+                CV_UNUSED(srcWhole);
+                CV_UNUSED(xoff);
+                CV_UNUSED(yoff);
                 typedef typename TypeVec<float, VecTraits< T >::cn>::vec_type work_type;
                 dim3 block(32, cc20 ? 8 : 4);
                 dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+                B<work_type> brd(src.rows, src.cols, VecTraits<work_type>::make(borderValue));
+                BorderReader<PtrStep<T>, B<work_type>> brdSrc(src, brd);
+                Filter<BorderReader<PtrStep<T>, B<work_type>>> filter_src(brdSrc);
+                remap<<<grid, block>>>(filter_src, mapx, mapy, dst);
+#else
                 if (srcWhole.cols == src.cols && srcWhole.rows == src.rows)
                 {
                     cudev::Texture<T> texSrcWhole(srcWhole);
@@ -133,6 +142,7 @@ namespace cv { namespace cuda { namespace device
                     Filter<BorderReader<cudev::TextureOffPtr<T>, B<work_type>>> filter_src(brdSrc);
                     remap<<<grid, block >>>(filter_src, mapx, mapy, dst);
                 }
+#endif
 
                 cudaSafeCall( cudaGetLastError() );
                 cudaSafeCall( cudaDeviceSynchronize() );
@@ -146,6 +156,12 @@ namespace cv { namespace cuda { namespace device
             {
                 dim3 block(32, 8);
                 dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+                BrdReplicate<T> brd(src.rows, src.cols);
+                BorderReader<PtrStep<T>, BrdReplicate<T>> brdSrc(src, brd);
+                Filter<BorderReader<PtrStep<T>, BrdReplicate<T>>> filter_src(brdSrc);
+                remap<<<grid, block>>>(filter_src, mapx, mapy, dst);
+#else
                 if (srcWhole.cols == src.cols && srcWhole.rows == src.rows)
                 {
                     cudev::Texture<T> texSrcWhole(srcWhole);
@@ -160,6 +176,7 @@ namespace cv { namespace cuda { namespace device
                     Filter<BorderReader<cudev::TextureOffPtr<T>, BrdReplicate<T>>> filter_src(brdSrc);
                     remap<<<grid, block>>>(filter_src, mapx, mapy, dst);
                 }
+#endif
                 cudaSafeCall( cudaGetLastError() );
                 cudaSafeCall( cudaDeviceSynchronize() );
             }

@@ -603,6 +603,23 @@ namespace cv { namespace cuda { namespace device
         /////////////////////////////////// Textureness filtering ////////////////////////////////////////
         //////////////////////////////////////////////////////////////////////////////////////////////////
 
+#ifdef DAS_ADAPT
+        __device__ __forceinline__ unsigned char readInputClamp(const PtrStepSzb& input, int y, int x)
+        {
+            x = max(0, min(x, input.cols - 1));
+            y = max(0, min(y, input.rows - 1));
+            return input.ptr(y)[x];
+        }
+
+        __device__ __forceinline__ float sobel(const PtrStepSzb& input, int x, int y)
+        {
+            float conv = readInputClamp(input, y - 1, x - 1) * (-1.0f) + readInputClamp(input, y - 1, x + 1) * (1.0f) +
+                readInputClamp(input, y, x - 1) * (-2.0f) + readInputClamp(input, y, x + 1) * (2.0f) +
+                readInputClamp(input, y + 1, x - 1) * (-1.0f) + readInputClamp(input, y + 1, x + 1) * (1.0f);
+
+            return fabsf(conv);
+        }
+#else
         __device__ __forceinline__ float sobel(cv::cudev::TexturePtr<uchar, float> texSrc, int x, int y)
         {
             float conv = texSrc(y - 1, x - 1) * (-1) + texSrc(y - 1, x + 1) * (1) +
@@ -611,6 +628,7 @@ namespace cv { namespace cuda { namespace device
 
             return fabs(conv);
         }
+#endif
 
         __device__ float CalcSums(float *cols, float *cols_cache, int winsz)
         {
@@ -636,7 +654,11 @@ namespace cv { namespace cuda { namespace device
 
         #define RpT (2 * ROWSperTHREAD)  // got experimentally
 
+#ifdef DAS_ADAPT
+        __global__ void textureness_kernel(PtrStepSzb input, PtrStepSzb disp, int winsz, float threshold)
+#else
         __global__ void textureness_kernel(cv::cudev::TexturePtr<uchar,float> texSrc, PtrStepSzb disp, int winsz, float threshold)
+#endif
         {
             int winsz2 = winsz/2;
             int n_dirty_pixels = (winsz2) * 2;
@@ -658,9 +680,19 @@ namespace cv { namespace cuda { namespace device
 
                 for(int i = y - winsz2; i <= y + winsz2; ++i)
                 {
+                    #ifdef DAS_ADAPT
+                    sum += sobel(input, x - winsz2, i);
+#else
                     sum += sobel(texSrc, x - winsz2, i);
+#endif
                     if (cols_extra)
+                    {
+#ifdef DAS_ADAPT
+                        sum_extra += sobel(input, x + blockDim.x - winsz2, i);
+#else
                         sum_extra += sobel(texSrc, x + blockDim.x - winsz2, i);
+#endif
+                    }
                 }
                 *cols = sum;
                 if (cols_extra)
@@ -676,12 +708,20 @@ namespace cv { namespace cuda { namespace device
 
                 for(int y = beg_row + 1; y < end_row; ++y)
                 {
+                    #ifdef DAS_ADAPT
+                    sum = sum - sobel(input, x - winsz2, y - winsz2 - 1) + sobel(input, x - winsz2, y + winsz2);
+#else
                     sum = sum - sobel(texSrc, x - winsz2, y - winsz2 - 1) + sobel(texSrc, x - winsz2, y + winsz2);
+#endif
                     *cols = sum;
 
                     if (cols_extra)
                     {
+#ifdef DAS_ADAPT
+                        sum_extra = sum_extra - sobel(input, x + blockDim.x - winsz2, y - winsz2 - 1) + sobel(input, x + blockDim.x - winsz2, y + winsz2);
+#else
                         sum_extra = sum_extra - sobel(texSrc, x + blockDim.x - winsz2, y - winsz2 - 1) + sobel(texSrc, x + blockDim.x - winsz2, y + winsz2);
+#endif
                         *cols_extra = sum_extra;
                     }
 
@@ -698,13 +738,17 @@ namespace cv { namespace cuda { namespace device
         void postfilter_textureness(const PtrStepSzb& input, int winsz, float avgTexturenessThreshold, const PtrStepSzb& disp, cudaStream_t & stream)
         {
             avgTexturenessThreshold *= winsz * winsz;
-            cv::cudev::Texture<unsigned char, float> tex(input, false, cudaFilterModeLinear, cudaAddressModeWrap, cudaReadModeNormalizedFloat);
             dim3 threads(128, 1, 1);
             dim3 grid(1, 1, 1);
             grid.x = divUp(input.cols, threads.x);
             grid.y = divUp(input.rows, RpT);
             size_t smem_size = (threads.x + threads.x + (winsz/2) * 2 ) * sizeof(float);
+#ifdef DAS_ADAPT
+            textureness_kernel<<<grid, threads, smem_size, stream>>>(input, disp, winsz, avgTexturenessThreshold);
+#else
+            cv::cudev::Texture<unsigned char, float> tex(input, false, cudaFilterModeLinear, cudaAddressModeWrap, cudaReadModeNormalizedFloat);
             textureness_kernel<<<grid, threads, smem_size, stream>>>(tex, disp, winsz, avgTexturenessThreshold);
+#endif
             cudaSafeCall( cudaGetLastError() );
             if (stream == 0)
                 cudaSafeCall( cudaDeviceSynchronize() );

@@ -170,7 +170,7 @@ namespace cv { namespace cuda { namespace device
         ////////////////////////////////////////////////////////////////////////
         // circlesAccumRadius
 
-        __global__ void circlesAccumRadius(const unsigned int* centers, const unsigned int* list, const int count,
+        __global__ __launch_bounds__(1024) void circlesAccumRadius(const unsigned int* centers, const unsigned int* list, const int count,
                                            float3* circles, const int maxCircles, const float dp,
                                            const int minRadius, const int maxRadius, const int histSize, const int threshold,
                                            int* counterPtr)

@@ -58,6 +58,26 @@ void cv::cuda::resize(InputArray _src, OutputArray _dst, Size dsize, double fx, 
 {
     GpuMat src = _src.getGpuMat();
 
+#ifdef DAS_ADAPT
+    if (src.data)
+    {
+        cudaPointerAttributes attrs;
+        cudaError_t attrErr = cudaPointerGetAttributes(&attrs, src.data);
+        if (attrErr == cudaSuccess)
+        {
+#if CUDART_VERSION >= 10000
+            cudaSafeCall(cudaSetDevice(attrs.device));
+#else
+            cudaSafeCall(cudaSetDevice(attrs.device));
+#endif
+        }
+        else
+        {
+            cudaGetLastError();
+        }
+    }
+#endif
+
     typedef void (*func_t)(const PtrStepSzb& src, const PtrStepSzb& srcWhole, int yoff, int xoff, const PtrStepSzb& dst, float fy, float fx, int interpolation, cudaStream_t stream);
     static const func_t funcs[6][4] =
     {

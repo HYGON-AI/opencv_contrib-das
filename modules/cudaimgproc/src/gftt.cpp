@@ -112,11 +112,29 @@ namespace
 
         CV_Assert( mask.empty() || (mask.type() == CV_8UC1 && mask.size() == image.size()) );
 
+#ifdef DAS_ADAPT
+        if (cuda::countNonZero(image) == 0 || (!mask.empty() && cuda::countNonZero(mask) == 0))
+        {
+            _corners.release();
+            return;
+        }
+#endif
+
         ensureSizeIsEnough(image.size(), CV_32FC1, eig_);
+#ifdef DAS_ADAPT
+        eig_.setTo(Scalar::all(0), stream);
+#endif
         cornerCriteria_->compute(image, eig_, stream);
 
         double maxVal = 0;
         cuda::minMax(eig_, 0, &maxVal);
+#ifdef DAS_ADAPT
+        if (!(maxVal > 0))
+        {
+            _corners.release();
+            return;
+        }
+#endif
         cudaStream_t stream_ = StreamAccessor::getStream(stream);
         ensureSizeIsEnough(1, std::max(1000, static_cast<int>(image.size().area() * 0.05)), CV_32FC2, tmpCorners_);
 

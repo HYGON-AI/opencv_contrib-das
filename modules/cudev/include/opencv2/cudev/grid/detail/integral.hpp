@@ -176,6 +176,8 @@ namespace integral_detail
         const int id = threadIdx.x;
         const int lane_id = id % warpSize;
         const int warp_id = id / warpSize;
+        const int warp_count = divUp(blockDim.x, warpSize);
+        const int warp_lane_count = (blockDim.x - warp_id * warpSize) < warpSize ? (blockDim.x - warp_id * warpSize) : warpSize;
 
         const uint4 data = img(blockIdx.x, id);
 
@@ -208,16 +210,10 @@ namespace integral_detail
 
         int sum = result[15];
 
-        // the prefix sum for each thread's 16 value is computed,
-        // now the final sums (result[15]) need to be shared
-        // with the other threads and add.  To do this,
-        // the shfl_up() instruction is used and a shuffle scan
-        // operation is performed to distribute the sums to the correct
-        // threads
         #pragma unroll
-        for (int i = 1; i < 32; i *= 2)
+        for (int i = 1; i < warpSize; i *= 2)
         {
-            const int n = compatible_shfl_up(sum, i, 32);
+            const int n = compatible_shfl_up(sum, i, warpSize);
 
             if (lane_id >= i)
             {
@@ -229,104 +225,56 @@ namespace integral_detail
             }
         }
 
-        // Now the final sum for the warp must be shared
-        // between warps.  This is done by each warp
-        // having a thread store to shared memory, then
-        // having some other warp load the values and
-        // compute a prefix sum, again by using shfl_up.
-        // The results are uniformly added back to the warps.
-        // last thread in the warp holding sum of the warp
-        // places that in shared
-        if (threadIdx.x % warpSize == warpSize - 1)
+        if (lane_id == warp_lane_count - 1)
             sums[warp_id] = result[15];
 
         __syncthreads();
 
         if (warp_id == 0)
         {
-            int warp_sum = sums[lane_id];
+            int warp_sum = lane_id < warp_count ? sums[lane_id] : 0;
 
             #pragma unroll
-            for (int i = 1; i < 32; i *= 2)
+            for (int i = 1; i < warpSize; i *= 2)
             {
-                const int n = compatible_shfl_up(warp_sum, i, 32);
+                const int n = compatible_shfl_up(warp_sum, i, warpSize);
 
-                if (lane_id >= i)
+                if (lane_id >= i && lane_id < warp_count)
                     warp_sum += n;
             }
 
-            sums[lane_id] = warp_sum;
+            if (lane_id < warp_count)
+                sums[lane_id] = warp_sum;
         }
 
         __syncthreads();
 
-        int blockSum = 0;
-
-        // fold in unused warp
         if (warp_id > 0)
         {
-            blockSum = sums[warp_id - 1];
+            const int blockSum = sums[warp_id - 1];
 
             #pragma unroll
             for (int k = 0; k < 16; ++k)
                 result[k] += blockSum;
         }
 
-        // assemble result
-        // Each thread has 16 values to write, which are
-        // now integer data (to avoid overflow).  Instead of
-        // each thread writing consecutive uint4s, the
-        // approach shown here experiments using
-        // the shuffle command to reformat the data
-        // inside the registers so that each thread holds
-        // consecutive data to be written so larger contiguous
-        // segments can be assembled for writing.
+        result[4]  = shfl_xor(result[4] , 1, warpSize);
+        result[5]  = shfl_xor(result[5] , 1, warpSize);
+        result[6]  = shfl_xor(result[6] , 1, warpSize);
+        result[7]  = shfl_xor(result[7] , 1, warpSize);
 
-        /*
-            For example data that needs to be written as
+        result[8]  = shfl_xor(result[8] , 2, warpSize);
+        result[9]  = shfl_xor(result[9] , 2, warpSize);
+        result[10] = shfl_xor(result[10], 2, warpSize);
+        result[11] = shfl_xor(result[11], 2, warpSize);
 
-            GMEM[16] <- x0 x1 x2 x3 y0 y1 y2 y3 z0 z1 z2 z3 w0 w1 w2 w3
-            but is stored in registers (r0..r3), in four threads (0..3) as:
-
-            threadId   0  1  2  3
-              r0      x0 y0 z0 w0
-              r1      x1 y1 z1 w1
-              r2      x2 y2 z2 w2
-              r3      x3 y3 z3 w3
-
-              after apply shfl_xor operations to move data between registers r1..r3:
-
-            threadId  00 01 10 11
-                      x0 y0 z0 w0
-             xor(01)->y1 x1 w1 z1
-             xor(10)->z2 w2 x2 y2
-             xor(11)->w3 z3 y3 x3
-
-             and now x0..x3, and z0..z3 can be written out in order by all threads.
-
-             In the current code, each register above is actually representing
-             four integers to be written as uint4's to GMEM.
-        */
-
-        result[4]  = shfl_xor(result[4] , 1, 32);
-        result[5]  = shfl_xor(result[5] , 1, 32);
-        result[6]  = shfl_xor(result[6] , 1, 32);
-        result[7]  = shfl_xor(result[7] , 1, 32);
-
-        result[8]  = shfl_xor(result[8] , 2, 32);
-        result[9]  = shfl_xor(result[9] , 2, 32);
-        result[10] = shfl_xor(result[10], 2, 32);
-        result[11] = shfl_xor(result[11], 2, 32);
-
-        result[12] = shfl_xor(result[12], 3, 32);
-        result[13] = shfl_xor(result[13], 3, 32);
-        result[14] = shfl_xor(result[14], 3, 32);
-        result[15] = shfl_xor(result[15], 3, 32);
+        result[12] = shfl_xor(result[12], 3, warpSize);
+        result[13] = shfl_xor(result[13], 3, warpSize);
+        result[14] = shfl_xor(result[14], 3, warpSize);
+        result[15] = shfl_xor(result[15], 3, warpSize);
 
         uint4* integral_row = integral.row(blockIdx.x);
         uint4 output;
-
-        ///////
 
         if (threadIdx.x % 4 == 0)
             output = make_uint4(result[0], result[1], result[2], result[3]);
@@ -342,8 +290,6 @@ namespace integral_detail
 
         integral_row[threadIdx.x % 4 + (threadIdx.x / 4) * 16] = output;
 
-        ///////
-
         if (threadIdx.x % 4 == 2)
             output = make_uint4(result[0], result[1], result[2], result[3]);
 
@@ -358,13 +304,9 @@ namespace integral_detail
 
         integral_row[(threadIdx.x + 2) % 4 + (threadIdx.x / 4) * 16 + 8] = output;
 
-        // continuning from the above example,
-        // this use of shfl_xor() places the y0..y3 and w0..w3 data
-        // in order.
-
         #pragma unroll
         for (int i = 0; i < 16; ++i)
-            result[i] = shfl_xor(result[i], 1, 32);
+            result[i] = shfl_xor(result[i], 1, warpSize);
 
         if (threadIdx.x % 4 == 0)
             output = make_uint4(result[0], result[1], result[2], result[3]);
@@ -379,8 +321,6 @@ namespace integral_detail
             output = make_uint4(result[12], result[13], result[14], result[15]);
 
         integral_row[threadIdx.x % 4 + (threadIdx.x / 4) * 16 + 4] = output;
-
-        ///////
 
         if (threadIdx.x % 4 == 2)
             output = make_uint4(result[0], result[1], result[2], result[3]);

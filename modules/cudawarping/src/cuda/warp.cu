@@ -201,9 +201,18 @@ namespace cv { namespace cuda { namespace device
         {
             static void call(PtrStepSz<T> src, PtrStepSz<T> srcWhole, int xoff, int yoff, PtrStepSz<T> dst, const float* borderValue, const float warpMat[Transform::rows*3], bool cc20)
             {
+                CV_UNUSED(srcWhole);
+                CV_UNUSED(xoff);
+                CV_UNUSED(yoff);
                 typedef typename TypeVec<float, VecTraits<T>::cn>::vec_type work_type;
                 dim3 block(32, cc20 ? 8 : 4);
                 dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+                B<work_type> brd(src.rows, src.cols, VecTraits<work_type>::make(borderValue));
+                BorderReader<PtrStep<T>, B<work_type>> brdSrc(src, brd);
+                Filter<BorderReader<PtrStep<T>, B<work_type>>> filter_src(brdSrc);
+                warp<Transform><<<grid, block>>>(filter_src, dst, warpMat);
+#else
                 if (xoff || yoff) {
                     cudev::TextureOff<T> texSrcWhole(srcWhole, yoff, xoff);
                     B<work_type> brd(src.rows, src.cols, VecTraits<work_type>::make(borderValue));
@@ -218,6 +227,7 @@ namespace cv { namespace cuda { namespace device
                     Filter< BorderReader<cudev::TexturePtr<T>, B<work_type>>> filter_src(brdSrc);
                     warp<Transform><<<grid, block>>> (filter_src, dst, warpMat);
                 }
+#endif
                 cudaSafeCall( cudaGetLastError() );
                 cudaSafeCall( cudaDeviceSynchronize() );
             }

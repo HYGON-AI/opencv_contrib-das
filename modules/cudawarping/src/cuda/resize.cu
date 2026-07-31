@@ -151,6 +151,11 @@ namespace cv { namespace cuda { namespace device
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+        CV_UNUSED(yoff);
+        CV_UNUSED(xoff);
+        resize_nearest<<<grid, block>>>(srcWhole, dst, fy, fx);
+#else
         if (xoff || yoff) {
             cudev::TextureOff<T> texSrcWhole(srcWhole, yoff, xoff);
             resize<cudev::TextureOffPtr<T>><<<grid, block>>>(texSrcWhole, dst, fy, fx);
@@ -159,6 +164,7 @@ namespace cv { namespace cuda { namespace device
             cudev::Texture<T> texSrcWhole(srcWhole);
             resize<cudev::TexturePtr<T>><<<grid, block>>>(texSrcWhole, dst, fy, fx);
         }
+#endif
         cudaSafeCall( cudaGetLastError() );
         cudaSafeCall( cudaDeviceSynchronize() );
     }
@@ -183,6 +189,12 @@ namespace cv { namespace cuda { namespace device
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+        CV_UNUSED(srcWhole);
+        CV_UNUSED(yoff);
+        CV_UNUSED(xoff);
+        call_resize_linear_glob(src, dst, fy, fx, 0);
+#else
         if (srcWhole.data == src.data)
         {
             cudev::Texture<T> texSrc(src);
@@ -197,6 +209,7 @@ namespace cv { namespace cuda { namespace device
             LinearFilter<BorderReader<cudev::TextureOffPtr<T>, BrdReplicate<T>>> filteredSrc(brdSrc);
             resize<<<grid, block>>>(filteredSrc, dst, fy, fx);
         }
+#endif
         cudaSafeCall( cudaGetLastError() );
         cudaSafeCall( cudaDeviceSynchronize() );
     }
@@ -225,6 +238,12 @@ namespace cv { namespace cuda { namespace device
     {
         const dim3 block(32, 8);
         const dim3 grid(divUp(dst.cols, block.x), divUp(dst.rows, block.y));
+#ifdef DAS_ADAPT
+        CV_UNUSED(srcWhole);
+        CV_UNUSED(yoff);
+        CV_UNUSED(xoff);
+        call_resize_cubic_glob(src, dst, fy, fx, 0);
+#else
         if (srcWhole.data == src.data)
         {
             cudev::Texture<T> texSrc(src);
@@ -239,6 +258,7 @@ namespace cv { namespace cuda { namespace device
             CubicFilter<BorderReader<cudev::TextureOffPtr<T>, BrdReplicate<T>>> filteredSrc(brdSrc);
             resize<<<grid, block>>>(filteredSrc, dst, fy, fx);
         }
+#endif
         cudaSafeCall( cudaGetLastError() );
         cudaSafeCall( cudaDeviceSynchronize() );
     }
@@ -261,10 +281,17 @@ namespace cv { namespace cuda { namespace device
                 call_resize_nearest_glob(src, dst, fy, fx, stream);
             else
             {
+#ifdef DAS_ADAPT
+                CV_UNUSED(srcWhole);
+                CV_UNUSED(yoff);
+                CV_UNUSED(xoff);
+                call_resize_nearest_glob(src, dst, fy, fx, 0);
+#else
                 if (fx > 1 || fy > 1)
                     call_resize_nearest_glob(src, dst, fy, fx, 0);
                 else
                    call_resize_nearest_tex(srcWhole, yoff, xoff, dst, fy, fx);
+#endif
             }
         }
     };
