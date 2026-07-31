@@ -81,7 +81,7 @@ __device__ void rowReductionsCoalesced(const PtrStepSz<TSrc> img, const bool bin
 }
 
 template <typename TSrc, typename TMoments, bool coalesced = false, bool fourByteAligned = false, int nMoments>
-__global__ void spatialMoments(const PtrStepSz<TSrc> img, const bool binary, TMoments* moments, const int offsetX = 0) {
+__global__ __launch_bounds__(blockSizeX * blockSizeY) void spatialMoments(const PtrStepSz<TSrc> img, const bool binary, TMoments* moments, const int offsetX = 0) {
     const unsigned int y = blockIdx.x * blockDim.y + threadIdx.y;
     __shared__ TMoments smem[blockSizeY][nMoments + 1];
     if (threadIdx.y < nMoments && threadIdx.x < blockSizeY)

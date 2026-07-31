@@ -89,6 +89,11 @@ void cv::cuda::polarToCart(InputArray, InputArray, OutputArray, OutputArray, boo
 
 #else
 
+namespace cv { namespace cuda { namespace device {
+    void rshift(const GpuMat& src, Scalar_<int> val, GpuMat& dst, Stream& stream);
+    void lshift(const GpuMat& src, Scalar_<int> val, GpuMat& dst, Stream& stream);
+}}}
+
 ////////////////////////////////////////////////////////////////////////
 // arithm_op
 
@@ -386,16 +391,6 @@ namespace
 
 void cv::cuda::rshift(InputArray _src, Scalar_<int> val, OutputArray _dst, Stream& stream)
 {
-    typedef void (*func_t)(const GpuMat& src, Scalar_<Npp32u> sc, GpuMat& dst, cudaStream_t stream);
-    static const func_t funcs[5][4] =
-    {
-        {NppShift<CV_8U , 1, nppiRShiftC_8u_C1R >::call, 0, NppShift<CV_8U , 3, nppiRShiftC_8u_C3R >::call, NppShift<CV_8U , 4, nppiRShiftC_8u_C4R>::call },
-        {NppShift<CV_8S , 1, nppiRShiftC_8s_C1R >::call, 0, NppShift<CV_8S , 3, nppiRShiftC_8s_C3R >::call, NppShift<CV_8S , 4, nppiRShiftC_8s_C4R>::call },
-        {NppShift<CV_16U, 1, nppiRShiftC_16u_C1R>::call, 0, NppShift<CV_16U, 3, nppiRShiftC_16u_C3R>::call, NppShift<CV_16U, 4, nppiRShiftC_16u_C4R>::call},
-        {NppShift<CV_16S, 1, nppiRShiftC_16s_C1R>::call, 0, NppShift<CV_16S, 3, nppiRShiftC_16s_C3R>::call, NppShift<CV_16S, 4, nppiRShiftC_16s_C4R>::call},
-        {NppShift<CV_32S, 1, nppiRShiftC_32s_C1R>::call, 0, NppShift<CV_32S, 3, nppiRShiftC_32s_C3R>::call, NppShift<CV_32S, 4, nppiRShiftC_32s_C4R>::call},
-    };
-
     GpuMat src = getInputMat(_src, stream);
 
     CV_Assert( src.depth() < CV_32F );
@@ -403,23 +398,13 @@ void cv::cuda::rshift(InputArray _src, Scalar_<int> val, OutputArray _dst, Strea
 
     GpuMat dst = getOutputMat(_dst, src.size(), src.type(), stream);
 
-    funcs[src.depth()][src.channels() - 1](src, val, dst, StreamAccessor::getStream(stream));
+    device::rshift(src, val, dst, stream);
 
     syncOutput(dst, _dst, stream);
 }
 
 void cv::cuda::lshift(InputArray _src, Scalar_<int> val, OutputArray _dst, Stream& stream)
 {
-    typedef void (*func_t)(const GpuMat& src, Scalar_<Npp32u> sc, GpuMat& dst, cudaStream_t stream);
-    static const func_t funcs[5][4] =
-    {
-        {NppShift<CV_8U , 1, nppiLShiftC_8u_C1R>::call , 0, NppShift<CV_8U , 3, nppiLShiftC_8u_C3R>::call , NppShift<CV_8U , 4, nppiLShiftC_8u_C4R>::call },
-        {0                                             , 0, 0                                             , 0                                             },
-        {NppShift<CV_16U, 1, nppiLShiftC_16u_C1R>::call, 0, NppShift<CV_16U, 3, nppiLShiftC_16u_C3R>::call, NppShift<CV_16U, 4, nppiLShiftC_16u_C4R>::call},
-        {0                                             , 0, 0                                             , 0                                             },
-        {NppShift<CV_32S, 1, nppiLShiftC_32s_C1R>::call, 0, NppShift<CV_32S, 3, nppiLShiftC_32s_C3R>::call, NppShift<CV_32S, 4, nppiLShiftC_32s_C4R>::call},
-    };
-
     GpuMat src = getInputMat(_src, stream);
 
     CV_Assert( src.depth() == CV_8U || src.depth() == CV_16U || src.depth() == CV_32S );
@@ -427,7 +412,7 @@ void cv::cuda::lshift(InputArray _src, Scalar_<int> val, OutputArray _dst, Strea
 
     GpuMat dst = getOutputMat(_dst, src.size(), src.type(), stream);
 
-    funcs[src.depth()][src.channels() - 1](src, val, dst, StreamAccessor::getStream(stream));
+    device::lshift(src, val, dst, stream);
 
     syncOutput(dst, _dst, stream);
 }
@@ -485,23 +470,21 @@ namespace
 void cv::cuda::magnitude(InputArray _src, OutputArray _dst, Stream& stream)
 {
     GpuMat src = getInputMat(_src, stream);
+    CV_Assert(src.type() == CV_32FC2);
 
-    GpuMat dst = getOutputMat(_dst, src.size(), CV_32FC1, stream);
-
-    npp_magnitude(src, dst, nppiMagnitude_32fc32f_C1R, StreamAccessor::getStream(stream));
-
-    syncOutput(dst, _dst, stream);
+    GpuMat planes[2];
+    split(src, planes, stream);
+    cv::cuda::magnitude(planes[0], planes[1], _dst, stream);
 }
 
 void cv::cuda::magnitudeSqr(InputArray _src, OutputArray _dst, Stream& stream)
 {
     GpuMat src = getInputMat(_src, stream);
+    CV_Assert(src.type() == CV_32FC2);
 
-    GpuMat dst = getOutputMat(_dst, src.size(), CV_32FC1, stream);
-
-    npp_magnitude(src, dst, nppiMagnitudeSqr_32fc32f_C1R, StreamAccessor::getStream(stream));
-
-    syncOutput(dst, _dst, stream);
+    GpuMat planes[2];
+    split(src, planes, stream);
+    cv::cuda::magnitudeSqr(planes[0], planes[1], _dst, stream);
 }
 
 #endif

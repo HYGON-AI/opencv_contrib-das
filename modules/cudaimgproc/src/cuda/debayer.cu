@@ -403,7 +403,7 @@ namespace cv { namespace cuda { namespace device
         const int x = blockIdx.x * blockDim.x + threadIdx.x;
         const int y = blockIdx.y * blockDim.y + threadIdx.y;
 
-        if (x == 0 || x >= dst.cols - 1 || y == 0 || y >= dst.rows - 1)
+        if (x >= dst.cols || y >= dst.rows)
             return;
 
         int2 center;

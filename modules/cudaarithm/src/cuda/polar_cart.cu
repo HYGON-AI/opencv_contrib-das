@@ -124,35 +124,8 @@ void cv::cuda::cartToPolar(InputArray _x, InputArray _y, OutputArray _mag, Outpu
     CV_Assert( x.depth() == CV_32F );
     CV_Assert( y.type() == x.type() && y.size() == x.size() );
 
-    GpuMat mag = getOutputMat(_mag, x.size(), CV_32FC1, stream);
-    GpuMat angle = getOutputMat(_angle, x.size(), CV_32FC1, stream);
-
-    GpuMat_<float> xc(x.reshape(1));
-    GpuMat_<float> yc(y.reshape(1));
-    GpuMat_<float> magc(mag.reshape(1));
-    GpuMat_<float> anglec(angle.reshape(1));
-
-    if (angleInDegrees)
-    {
-        gridTransformTuple(zipPtr(xc, yc),
-                           tie(magc, anglec),
-                           make_tuple(
-                               binaryTupleAdapter<0, 1>(magnitude_func<float>()),
-                               binaryTupleAdapter<0, 1>(direction_func<float, true>())),
-                           stream);
-    }
-    else
-    {
-        gridTransformTuple(zipPtr(xc, yc),
-                           tie(magc, anglec),
-                           make_tuple(
-                               binaryTupleAdapter<0, 1>(magnitude_func<float>()),
-                               binaryTupleAdapter<0, 1>(direction_func<float, false>())),
-                           stream);
-    }
-
-    syncOutput(mag, _mag, stream);
-    syncOutput(angle, _angle, stream);
+    cv::cuda::magnitude(x, y, _mag, stream);
+    cv::cuda::phase(x, y, _angle, angleInDegrees, stream);
 }
 
 namespace

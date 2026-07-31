@@ -188,7 +188,12 @@ Ptr<Filter> cv::cuda::createBoxFilter(int srcType, int dstType, Size ksize, Poin
 
     dstType = CV_MAKE_TYPE(CV_MAT_DEPTH(dstType), CV_MAT_CN(srcType));
 
+#ifdef DAS_ADAPT
+    Mat kernel(ksize, CV_32FC1, Scalar::all(1.0 / static_cast<double>(ksize.area())));
+    return cuda::createLinearFilter(srcType, dstType, kernel, anchor, borderMode, borderVal);
+#else
     return makePtr<NPPBoxFilter>(srcType, dstType, ksize, anchor, borderMode, borderVal);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -529,19 +534,27 @@ namespace
         typedef NppStatus (*nppMorfFilter32f_t)(const Npp32f* pSrc, Npp32s nSrcStep, Npp32f* pDst, Npp32s nDstStep, NppiSize oSizeROI,
                                                 const Npp8u* pMask, NppiSize oMaskSize, NppiPoint oAnchor);
 
+        int op_;
         int type_;
+        Mat kernelHost_;
         GpuMat kernel_;
         Point anchor_;
         int iters_;
         nppMorfFilter8u_t func8u_;
         nppMorfFilter32f_t func32f_;
+#ifdef DAS_ADAPT
+        bool useCudaMorph8u_;
+#endif
 
         GpuMat srcBorder_;
         GpuMat buf_;
     };
 
     MorphologyFilter::MorphologyFilter(int op, int srcType, InputArray _kernel, Point anchor, int iterations) :
-        type_(srcType), anchor_(anchor), iters_(iterations)
+        op_(op), type_(srcType), anchor_(anchor), iters_(iterations)
+#ifdef DAS_ADAPT
+        , useCudaMorph8u_(false)
+#endif
     {
         static const nppMorfFilter8u_t funcs8u[2][5] =
         {
@@ -570,18 +583,24 @@ namespace
         }
         else if (iters_ > 1 && cv::countNonZero(kernel) == (int) kernel.total())
         {
-            anchor_ = Point(anchor_.x * iters_, anchor_.y * iters_);
-            kernel = getStructuringElement(MORPH_RECT,
-                                           Size(ksize.width + (iters_ - 1) * (ksize.width - 1),
-                                                ksize.height + (iters_ - 1) * (ksize.height - 1)),
-                                           anchor_);
-            iters_ = 1;
+#ifdef DAS_ADAPT
+            if (!(srcType == CV_8UC1 || srcType == CV_8UC4))
+#endif
+            {
+                anchor_ = Point(anchor_.x * iters_, anchor_.y * iters_);
+                kernel = getStructuringElement(MORPH_RECT,
+                                               Size(ksize.width + (iters_ - 1) * (ksize.width - 1),
+                                                    ksize.height + (iters_ - 1) * (ksize.height - 1)),
+                                               anchor_);
+                iters_ = 1;
+            }
         }
 
         CV_Assert( kernel.channels() == 1 );
 
         Mat kernel8U;
         kernel.convertTo(kernel8U, CV_8U);
+        kernelHost_ = kernel8U;
 
         kernel_ = cuda::createContinuous(kernel.size(), CV_8UC1);
         kernel_.upload(kernel8U);
@@ -589,6 +608,10 @@ namespace
         if(srcType == CV_8UC1 || srcType == CV_8UC4)
         {
             func8u_ = funcs8u[op][CV_MAT_CN(srcType)];
+#ifdef DAS_ADAPT
+            if (cv::countNonZero(kernel8U) == static_cast<int>(kernel8U.total()))
+                useCudaMorph8u_ = true;
+#endif
         }
         else if(srcType == CV_32FC1 || srcType == CV_32FC4)
         {
@@ -602,6 +625,61 @@ namespace
         CV_Assert( src.type() == type_ );
 
         Size ksize = kernel_.size();
+
+        _dst.create(src.size(), src.type());
+        GpuMat dst = _dst.getGpuMat();
+
+        cudaStream_t stream = StreamAccessor::getStream(_stream);
+
+#ifdef DAS_ADAPT
+        if ((type_ == CV_8UC1 || type_ == CV_8UC4) && useCudaMorph8u_)
+        {
+            ensureSizeIsEnough(src.size(), type_, buf_);
+            GpuMat cur = src;
+            GpuMat tmp = buf_(Rect(0, 0, src.cols, src.rows));
+
+            for (int iter = 0; iter < iters_; ++iter)
+            {
+                cuda::copyMakeBorder(cur, srcBorder_, ksize.height, ksize.height, ksize.width, ksize.width, BORDER_DEFAULT, Scalar(), _stream);
+
+                bool first = true;
+                for (int y = 0; y < ksize.height; ++y)
+                {
+                    for (int x = 0; x < ksize.width; ++x)
+                    {
+                        if (kernelHost_.at<uchar>(y, x) == 0)
+                            continue;
+
+                        GpuMat roi = srcBorder_(Rect(ksize.width - anchor_.x + x, ksize.height - anchor_.y + y, src.cols, src.rows));
+                        if (first)
+                        {
+                            roi.copyTo(dst, _stream);
+                            first = false;
+                        }
+                        else if (op_ == MORPH_ERODE)
+                        {
+                            cuda::min(dst, roi, dst, _stream);
+                        }
+                        else
+                        {
+                            cuda::max(dst, roi, dst, _stream);
+                        }
+                    }
+                }
+
+                if (iter + 1 < iters_)
+                {
+                    dst.copyTo(tmp, _stream);
+                    cur = tmp;
+                }
+            }
+
+            if (stream == 0)
+                cudaSafeCall( cudaDeviceSynchronize() );
+            return;
+        }
+#endif
+
         cuda::copyMakeBorder(src, srcBorder_, ksize.height, ksize.height, ksize.width, ksize.width, BORDER_DEFAULT, Scalar(), _stream);
 
         GpuMat srcRoi = srcBorder_(Rect(ksize.width, ksize.height, src.cols, src.rows));
@@ -614,10 +692,6 @@ namespace
             bufRoi = buf_(Rect(ksize.width, ksize.height, src.cols, src.rows));
         }
 
-        _dst.create(src.size(), src.type());
-        GpuMat dst = _dst.getGpuMat();
-
-        cudaStream_t stream = StreamAccessor::getStream(_stream);
         NppStreamHandler h(stream);
 
         NppiSize oSizeROI;
@@ -763,9 +837,9 @@ namespace
 
     void MorphologyTophatFilter::apply(InputArray src, OutputArray dst, Stream& stream)
     {
-        erodeFilter_->apply(src, dst, stream);
-        dilateFilter_->apply(dst, buf_, stream);
-        cuda::subtract(src, buf_, dst, noArray(), -1, stream);
+        erodeFilter_->apply(src, buf_, stream);
+        dilateFilter_->apply(buf_, dst, stream);
+        cuda::subtract(src, dst, dst, noArray(), -1, stream);
     }
 
     // MORPH_BLACKHAT
@@ -785,9 +859,9 @@ namespace
 
     void MorphologyBlackhatFilter::apply(InputArray src, OutputArray dst, Stream& stream)
     {
-        dilateFilter_->apply(src, dst, stream);
-        erodeFilter_->apply(dst, buf_, stream);
-        cuda::subtract(buf_, src, dst, noArray(), -1, stream);
+        dilateFilter_->apply(src, buf_, stream);
+        erodeFilter_->apply(buf_, dst, stream);
+        cuda::subtract(dst, src, dst, noArray(), -1, stream);
     }
 }
 

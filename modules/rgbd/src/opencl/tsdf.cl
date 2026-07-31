@@ -203,47 +203,43 @@ inline float interpolateVoxel(float3 p, __global const struct TsdfVoxel* volumeP
     return mix(vx.s0, vx.s1, t.x);
 }
 
-inline float3 getNormalVoxel(float3 p, __global const struct TsdfVoxel* volumePtr,
-                             int3 volResolution, int3 volDims, int8 neighbourCoords)
-{
-    if(any(p < 1) || any(p >= convert_float3(volResolution - 2)))
-        return nan((uint)0);
-
-    float3 fip = floor(p);
-    int3 ip = convert_int3(fip);
-    float3 t = p - fip;
-
-    int3 cmul = volDims*ip;
-    int coordBase = cmul.x + cmul.y + cmul.z;
-    int nco[8];
-    vstore8(neighbourCoords + coordBase, 0, nco);
-
-    int arDims[3];
-    vstore3(volDims, 0, arDims);
-    float an[3];
-    for(int c = 0; c < 3; c++)
-    {
-        int dim = arDims[c];
-
-        float vaz[8];
-        for(int i = 0; i < 8; i++)
-            vaz[i] = tsdfToFloat(volumePtr[nco[i] + dim].tsdf) -
-                     tsdfToFloat(volumePtr[nco[i] - dim].tsdf);
-
-        float8 vz = vload8(0, vaz);
-
-        float4 vy = mix(vz.s0246, vz.s1357, t.z);
-        float2 vx = mix(vy.s02, vy.s13, t.y);
-
-        an[c] = mix(vx.s0, vx.s1, t.x);
-    }
-
-    //gradientDeltaFactor is fixed at 1.0 of voxel size
-    float3 n = vload3(0, an);
-    float Norm = sqrt(n.x*n.x + n.y*n.y + n.z*n.z);
-    return Norm < 0.0001f ? nan((uint)0) : n / Norm;
-    //return fast_normalize(vload3(0, an));
-}
+#define COMPUTE_NORMAL_VOXEL(dst, pointExpr, volumePtr, volResolution, volDims, neighbourCoords) \
+    do \
+    { \
+        float3 p__ = (pointExpr); \
+        if (any(p__ < 1) || any(p__ >= convert_float3((volResolution) - 2))) \
+        { \
+            (dst) = nan((uint)0); \
+        } \
+        else \
+        { \
+            float3 fip__ = floor(p__); \
+            int3 ip__ = convert_int3(fip__); \
+            float3 t__ = p__ - fip__; \
+            int3 cmul__ = (volDims) * ip__; \
+            int coordBase__ = cmul__.x + cmul__.y + cmul__.z; \
+            int nco__[8]; \
+            vstore8((neighbourCoords) + coordBase__, 0, nco__); \
+            int arDims__[3]; \
+            vstore3((volDims), 0, arDims__); \
+            float an__[3]; \
+            for (int c__ = 0; c__ < 3; c__++) \
+            { \
+                int dim__ = arDims__[c__]; \
+                float vaz__[8]; \
+                for (int i__ = 0; i__ < 8; i__++) \
+                    vaz__[i__] = tsdfToFloat((volumePtr)[nco__[i__] + dim__].tsdf) - \
+                                 tsdfToFloat((volumePtr)[nco__[i__] - dim__].tsdf); \
+                float8 vz__ = vload8(0, vaz__); \
+                float4 vy__ = mix(vz__.s0246, vz__.s1357, t__.z); \
+                float2 vx__ = mix(vy__.s02, vy__.s13, t__.y); \
+                an__[c__] = mix(vx__.s0, vx__.s1, t__.x); \
+            } \
+            float3 n__ = vload3(0, an__); \
+            float norm__ = sqrt(n__.x * n__.x + n__.y * n__.y + n__.z * n__.z); \
+            (dst) = norm__ < 0.0001f ? nan((uint)0) : n__ / norm__; \
+        } \
+    } while (0)
 
 typedef float4 ptype;
 
@@ -390,7 +386,8 @@ __kernel void raycast(__global char * pointsptr,
             if(!isnan(ts) && !isinf(ts))
             {
                 float3 pv = orig + dir*ts;
-                float3 nv = getNormalVoxel(pv, volumeptr, volResolution, volDims, neighbourCoords);
+                float3 nv;
+                COMPUTE_NORMAL_VOXEL(nv, pv, volumeptr, volResolution, volDims, neighbourCoords);
 
                 if(!any(isnan(nv)))
                 {
@@ -465,7 +462,7 @@ __kernel void getNormals(__global const char * pointsptr,
                                 dot(p, invRot1),
                                 dot(p, invRot2)) + invTrans;
         voxPt = voxPt * voxelSizeInv;
-        n = getNormalVoxel(voxPt, volumeptr, volResolution, volDims, neighbourCoords);
+        COMPUTE_NORMAL_VOXEL(n, voxPt, volumeptr, volResolution, volDims, neighbourCoords);
         n = (float3)(dot(n, volRot0),
                      dot(n, volRot1),
                      dot(n, volRot2));
@@ -558,8 +555,9 @@ inline struct CoordReturn coord(int x, int y, int z, float3 V, float v0, int axi
 
                     if(needNormals)
                     {
-                        float3 nv = getNormalVoxel(p * voxelSizeInv,
-                                                   volumeptr, volResolution, volDims, neighbourCoords);
+                        float3 nv;
+                        COMPUTE_NORMAL_VOXEL(nv, p * voxelSizeInv,
+                                             volumeptr, volResolution, volDims, neighbourCoords);
 
                         cr.normal = (float3)(dot(nv, volRot0),
                                              dot(nv, volRot1),

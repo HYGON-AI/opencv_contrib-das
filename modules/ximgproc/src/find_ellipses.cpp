@@ -636,29 +636,29 @@ EllipseDetectorImpl::getCenterCoordinates(EllipseData &data_ij, EllipseData &dat
 
 
 void EllipseDetectorImpl::labeling(Mat1b &image, VVP &segments, int minLength) {
-    const int RG_STACK_SIZE = 2048;
-    int stackInt[RG_STACK_SIZE];
-    Point stackPoint[RG_STACK_SIZE];
-
     Mat_<uchar> image_clone = image.clone();
     Size imgSize = image.size();
     int h = imgSize.height, w = imgSize.width;
+    const size_t maxPixels = static_cast<size_t>(h) * static_cast<size_t>(w);
+    std::vector<int> stackInt;
+    stackInt.reserve(maxPixels);
+    std::vector<Point> stackPoint;
+    stackPoint.reserve(maxPixels);
 
     Point point;
     for (int y = 0; y < h; ++y) {
         for (int x = 0; x < w; ++x) {
             if ((image_clone(y, x)) != 0) {
                 // for each point
-                int curInt = 0;
                 int i = x + y * w;
-                stackInt[curInt] = i;
-                curInt++;
+                stackInt.clear();
+                stackInt.push_back(i);
 
                 // clear point list
-                int curPoint = 0;
-                while (curInt > 0) {
-                    curInt--;
-                    i = stackInt[curInt];
+                stackPoint.clear();
+                while (!stackInt.empty()) {
+                    i = stackInt.back();
+                    stackInt.pop_back();
                     int x2 = i % w;
                     int y2 = i / w;
 
@@ -666,52 +666,43 @@ void EllipseDetectorImpl::labeling(Mat1b &image, VVP &segments, int minLength) {
                     point.y = y2;
 
                     if ((image_clone(y2, x2))) {
-                        stackPoint[curPoint] = point;
-                        curPoint++;
+                        stackPoint.push_back(point);
                         image_clone(y2, x2) = 0;
                     }
 
                     // 4 directions
                     if (x2 > 0 && (image_clone(y2, x2 - 1) != 0)) {
-                        stackInt[curInt] = i - 1;
-                        curInt++;
+                        stackInt.push_back(i - 1);
                     }
                     if (y2 > 0 && (image_clone(y2 - 1, x2) != 0)) {
-                        stackInt[curInt] = i - w;
-                        curInt++;
+                        stackInt.push_back(i - w);
                     }
                     if (y2 < h - 1 && (image_clone(y2 + 1, x2) != 0)) {
-                        stackInt[curInt] = i + w;
-                        curInt++;
+                        stackInt.push_back(i + w);
                     }
                     if (x2 < w - 1 && (image_clone(y2, x2 + 1) != 0)) {
-                        stackInt[curInt] = i + 1;
-                        curInt++;
+                        stackInt.push_back(i + 1);
                     }
 
                     // 8 directions
                     if (x2 > 0 && y2 > 0 && (image_clone(y2 - 1, x2 - 1) != 0)) {
-                        stackInt[curInt] = i - w - 1;
-                        curInt++;
+                        stackInt.push_back(i - w - 1);
                     }
                     if (x2 > 0 && y2 < h - 1 && (image_clone(y2 + 1, x2 - 1) != 0)) {
-                        stackInt[curInt] = i + w - 1;
-                        curInt++;
+                        stackInt.push_back(i + w - 1);
                     }
                     if (x2 < w - 1 && y2 > 0 && (image_clone(y2 - 1, x2 + 1) != 0)) {
-                        stackInt[curInt] = i - w + 1;
-                        curInt++;
+                        stackInt.push_back(i - w + 1);
                     }
                     if (x2 < w - 1 && y2 < h - 1 && (image_clone(y2 + 1, x2 + 1) != 0)) {
-                        stackInt[curInt] = i + w + 1;
-                        curInt++;
+                        stackInt.push_back(i + w + 1);
                     }
                 }
 
-                if (curPoint >= minLength) {
+                if (static_cast<int>(stackPoint.size()) >= minLength) {
                     std::vector<Point> component;
-                    component.reserve(curPoint);
-                    for (int j = 0; j < curPoint; j++)
+                    component.reserve(stackPoint.size());
+                    for (size_t j = 0; j < stackPoint.size(); j++)
                         component.push_back(stackPoint[j]);
                     segments.push_back(component);
                 }
@@ -1300,12 +1291,14 @@ void EllipseDetectorImpl::preProcessing(Mat1b &image, Mat1b &dp, Mat1b &dn) {
     // 2 - the pixel does belong to an edge
     for (int i = 0; i <= imgSize.height; i++) {
         int *tmpMag = magBuffer[(i > 0) + 1] + 1;
-        const short *tmpDx = dx.ptr<short>(i);
-        const short *tmpDy = dy.ptr<short>(i);
+        const short *tmpDx = 0;
+        const short *tmpDy = 0;
         uchar *tmpMap;
         int prevFlag = 0;
 
         if (i < imgSize.height) {
+            tmpDx = dx.ptr<short>(i);
+            tmpDy = dy.ptr<short>(i);
             tmpMag[-1] = tmpMag[imgSize.width] = 0;
             for (int j = 0; j < imgSize.width; j++)
                 tmpMag[j] = abs(tmpDx[j]) + abs(tmpDy[j]);

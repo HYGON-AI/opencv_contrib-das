@@ -95,11 +95,13 @@ CUDA_TEST_P(Canny, Accuracy)
 class CannyAsyncParallelLoopBody : public cv::ParallelLoopBody
 {
 public:
-    CannyAsyncParallelLoopBody(const cv::cuda::GpuMat& d_img_, cv::cuda::GpuMat* edges_, double low_thresh_, double high_thresh_, int apperture_size_, bool useL2gradient_)
-        : d_img(d_img_), edges(edges_), low_thresh(low_thresh_), high_thresh(high_thresh_), apperture_size(apperture_size_), useL2gradient(useL2gradient_) {}
+    CannyAsyncParallelLoopBody(int device_id_, const cv::cuda::GpuMat& d_img_, cv::cuda::GpuMat* edges_, double low_thresh_, double high_thresh_, int apperture_size_, bool useL2gradient_)
+        : device_id(device_id_), d_img(d_img_), edges(edges_), low_thresh(low_thresh_), high_thresh(high_thresh_), apperture_size(apperture_size_), useL2gradient(useL2gradient_) {}
     ~CannyAsyncParallelLoopBody() {};
     void operator()(const cv::Range& r) const
     {
+        cv::cuda::setDevice(device_id);
+
         for (int i = r.start; i < r.end; i++) {
             cv::cuda::Stream stream;
             cv::Ptr<cv::cuda::CannyEdgeDetector> canny = cv::cuda::createCannyEdgeDetector(low_thresh, high_thresh, apperture_size, useL2gradient);
@@ -108,6 +110,7 @@ public:
         }
     }
 protected:
+    int device_id;
     const cv::cuda::GpuMat& d_img;
     cv::cuda::GpuMat* edges;
     double low_thresh;
@@ -141,7 +144,7 @@ CUDA_TEST_P(Canny, Async)
 
         // Asynchronous call
         cv::cuda::GpuMat edges[NUM_STREAMS];
-        cv::parallel_for_(cv::Range(0, NUM_STREAMS), CannyAsyncParallelLoopBody(d_img_roi, edges, low_thresh, high_thresh, apperture_size, useL2gradient));
+        cv::parallel_for_(cv::Range(0, NUM_STREAMS), CannyAsyncParallelLoopBody(devInfo.deviceID(), d_img_roi, edges, low_thresh, high_thresh, apperture_size, useL2gradient));
 
         // Compare the results of synchronous call and asynchronous call
         for (int i = 0; i < NUM_STREAMS; i++)

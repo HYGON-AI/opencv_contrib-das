@@ -191,6 +191,7 @@ void subMat(const GpuMat& src1, const GpuMat& src2, GpuMat& dst, const GpuMat& m
     GpuMat src2_ = src2.reshape(1);
     GpuMat dst_ = dst.reshape(1);
 
+#ifndef DAS_ADAPT
     if (mask.empty() && (sdepth == CV_8U || sdepth == CV_16U) && ddepth == sdepth)
     {
         const intptr_t src1ptr = reinterpret_cast<intptr_t>(src1_.data);
@@ -213,6 +214,7 @@ void subMat(const GpuMat& src1, const GpuMat& src2, GpuMat& dst, const GpuMat& m
             }
         }
     }
+#endif
 
     const func_t func = funcs[sdepth][ddepth];
 

@@ -217,6 +217,7 @@ int cv::cudacodec::detail::VideoDecoder::reconfigure(const FormatInfo& videoForm
         videoFormat_.ulNumDecodeSurfaces = videoFormat.ulNumDecodeSurfaces;
         videoFormat_.ulWidth = videoFormat.ulWidth;
         videoFormat_.ulHeight = videoFormat.ulHeight;
+        videoFormat_.displayArea = videoFormat.displayArea;
         videoFormat_.targetRoi = videoFormat.targetRoi;
     }
 

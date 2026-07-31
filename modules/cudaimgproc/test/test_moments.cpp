@@ -78,9 +78,6 @@ CUDA_TEST_P(Moments, Accuracy)
     const Vec3i circle(size.width / 2, size.height / 2, static_cast<int>(static_cast<float>(size.width/2) * pcWidth));
     drawCircle(imgHost, circle, true);
     const GpuMat imgDevice(imgHost);
-    const int nMoments = numMoments(order);
-    setBufferPoolUsage(true);
-    setBufferPoolConfig(getDevice(), nMoments * ((momentsType == CV_64F) ? sizeof(double) : sizeof(float)), 1);
     const cv::Moments moments = cuda::moments(imgDevice(roi), isBinary, order, momentsType);
     Mat imgHostFloat; imgHost(roi).convertTo(imgHostFloat, CV_32F);
     const cv::Moments momentsGs = cv::moments(imgHostFloat, isBinary);
@@ -104,7 +101,9 @@ CUDA_TEST_P(Moments, Async)
     Mat momentsHost64F = momentsHost.createMatHeader();
     if (momentsType == CV_32F)
         momentsHost.createMatHeader().convertTo(momentsHost64F, CV_64F);
-    const cv::Moments moments = cv::Moments(momentsHost64F.at<double>(0), momentsHost64F.at<double>(1), momentsHost64F.at<double>(2), momentsHost64F.at<double>(3), momentsHost64F.at<double>(4), momentsHost64F.at<double>(5), momentsHost64F.at<double>(6), momentsHost64F.at<double>(7), momentsHost64F.at<double>(8), momentsHost64F.at<double>(9));
+    Mat fullMoments = Mat::zeros(1, 10, CV_64F);
+    momentsHost64F.colRange(0, nMoments).copyTo(fullMoments.colRange(0, nMoments));
+    const cv::Moments moments = cv::Moments(fullMoments.at<double>(0), fullMoments.at<double>(1), fullMoments.at<double>(2), fullMoments.at<double>(3), fullMoments.at<double>(4), fullMoments.at<double>(5), fullMoments.at<double>(6), fullMoments.at<double>(7), fullMoments.at<double>(8), fullMoments.at<double>(9));
     Mat imgHostAdjustedType = imgHost(roi);
     if (imgType != CV_8U && imgType != CV_32F)
         imgHost(roi).convertTo(imgHostAdjustedType, CV_32F);

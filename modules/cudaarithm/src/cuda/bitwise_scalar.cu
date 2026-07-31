@@ -88,6 +88,38 @@ namespace
         }
     };
 
+    template <template <typename> class Op, typename T>
+    void bitScalarVec4Op(const GpuMat& src, T value, GpuMat& dst, Stream& stream)
+    {
+        gridTransformUnary(globPtr<T>(src), globPtr<T>(dst), bind2nd(Op<T>(), value), stream);
+    }
+
+    template <typename T> struct MakeVec4;
+    template <> struct MakeVec4<ushort4>
+    {
+        static ushort4 make(cv::Scalar value)
+        {
+            return make_ushort4(cv::saturate_cast<ushort>(value[0]), cv::saturate_cast<ushort>(value[1]),
+                                cv::saturate_cast<ushort>(value[2]), cv::saturate_cast<ushort>(value[3]));
+        }
+    };
+    template <> struct MakeVec4<int4>
+    {
+        static int4 make(cv::Scalar value)
+        {
+            return make_int4(cv::saturate_cast<int>(value[0]), cv::saturate_cast<int>(value[1]),
+                             cv::saturate_cast<int>(value[2]), cv::saturate_cast<int>(value[3]));
+        }
+    };
+
+    template <typename T, void (*func)(const GpuMat&, T, GpuMat&, Stream&)> struct BitScalarVec4
+    {
+        static void call(const GpuMat& src, cv::Scalar value, GpuMat& dst, Stream& stream)
+        {
+            func(src, MakeVec4<T>::make(value), dst, stream);
+        }
+    };
+
     template <int DEPTH, int cn> struct NppBitwiseCFunc
     {
         typedef typename NPPTypeTraits<DEPTH>::npp_type npp_type;
@@ -134,26 +166,26 @@ void bitScalar(const GpuMat& src, cv::Scalar value, bool, GpuMat& dst, const Gpu
         {
             {BitScalar<uchar, bitScalarOp<bit_and, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiAndC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_and, uint> >::call},
             {BitScalar<uchar, bitScalarOp<bit_and, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiAndC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_and, uint> >::call},
-            {BitScalar<ushort, bitScalarOp<bit_and, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiAndC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiAndC_16u_C4R>::call},
-            {BitScalar<ushort, bitScalarOp<bit_and, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiAndC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiAndC_16u_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_and, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiAndC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiAndC_32s_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_and, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiAndC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiAndC_32s_C4R>::call}
+            {BitScalar<ushort, bitScalarOp<bit_and, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiAndC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_and, ushort4> >::call},
+            {BitScalar<ushort, bitScalarOp<bit_and, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiAndC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_and, ushort4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_and, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiAndC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_and, int4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_and, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiAndC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_and, int4> >::call}
         },
         {
             {BitScalar<uchar, bitScalarOp<bit_or, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiOrC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_or, uint> >::call},
             {BitScalar<uchar, bitScalarOp<bit_or, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiOrC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_or, uint> >::call},
-            {BitScalar<ushort, bitScalarOp<bit_or, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiOrC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiOrC_16u_C4R>::call},
-            {BitScalar<ushort, bitScalarOp<bit_or, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiOrC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiOrC_16u_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_or, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiOrC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiOrC_32s_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_or, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiOrC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiOrC_32s_C4R>::call}
+            {BitScalar<ushort, bitScalarOp<bit_or, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiOrC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_or, ushort4> >::call},
+            {BitScalar<ushort, bitScalarOp<bit_or, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiOrC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_or, ushort4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_or, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiOrC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_or, int4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_or, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiOrC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_or, int4> >::call}
         },
         {
             {BitScalar<uchar, bitScalarOp<bit_xor, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiXorC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_xor, uint> >::call},
             {BitScalar<uchar, bitScalarOp<bit_xor, uchar> >::call  , 0, NppBitwiseC<CV_8U , 3, nppiXorC_8u_C3R >::call, BitScalar4< bitScalarOp<bit_xor, uint> >::call},
-            {BitScalar<ushort, bitScalarOp<bit_xor, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiXorC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiXorC_16u_C4R>::call},
-            {BitScalar<ushort, bitScalarOp<bit_xor, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiXorC_16u_C3R>::call, NppBitwiseC<CV_16U, 4, nppiXorC_16u_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_xor, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiXorC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiXorC_32s_C4R>::call},
-            {BitScalar<uint, bitScalarOp<bit_xor, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiXorC_32s_C3R>::call, NppBitwiseC<CV_32S, 4, nppiXorC_32s_C4R>::call}
+            {BitScalar<ushort, bitScalarOp<bit_xor, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiXorC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_xor, ushort4> >::call},
+            {BitScalar<ushort, bitScalarOp<bit_xor, ushort> >::call, 0, NppBitwiseC<CV_16U, 3, nppiXorC_16u_C3R>::call, BitScalarVec4<ushort4, bitScalarVec4Op<bit_xor, ushort4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_xor, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiXorC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_xor, int4> >::call},
+            {BitScalar<uint, bitScalarOp<bit_xor, uint> >::call    , 0, NppBitwiseC<CV_32S, 3, nppiXorC_32s_C3R>::call, BitScalarVec4<int4, bitScalarVec4Op<bit_xor, int4> >::call}
         }
     };
 

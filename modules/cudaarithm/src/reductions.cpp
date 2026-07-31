@@ -147,30 +147,32 @@ void cv::cuda::meanStdDev(InputArray src, OutputArray dst, Stream& stream)
 
     GpuMat gdst = getOutputMat(dst, 1, 2, CV_64FC1, stream);
 
-    NppiSize sz;
-    sz.width  = gsrc.cols;
-    sz.height = gsrc.rows;
+    // DTK's unmasked NPP mean/stddev path hits the same internal reduction issue
+    // as the masked variant on BW200: an internal kernel is launched with 1024
+    // threads while compiled with launch_bounds(256), which corrupts the result.
+    // Keep the API unchanged and compute mean/stddev via existing GPU reductions.
+    GpuMat sumBuf;
+    GpuMat sqrSumBuf;
 
-    int bufSize;
-#if (CUDA_VERSION <= 4020)
-    nppSafeCall( nppiMeanStdDev8uC1RGetBufferHostSize(sz, &bufSize) );
-#else
-    if (gsrc.type() == CV_8UC1)
-        nppSafeCall( nppiMeanStdDevGetBufferHostSize_8u_C1R(sz, &bufSize) );
-    else
-        nppSafeCall( nppiMeanStdDevGetBufferHostSize_32f_C1R(sz, &bufSize) );
-#endif
+    calcSum(gsrc, sumBuf, noArray(), stream);
+    calcSqrSum(gsrc, sqrSumBuf, noArray(), stream);
 
-    BufferPool pool(stream);
-    GpuMat buf = pool.getBuffer(1, bufSize, gsrc.type());
+    const double invCount = 1.0 / static_cast<double>(gsrc.rows * gsrc.cols);
 
-    // detail: https://github.com/opencv/opencv/issues/11063
-    //NppStreamHandler h(StreamAccessor::getStream(stream));
+    GpuMat meanBuf;
+    GpuMat sqrMeanBuf;
+    GpuMat meanSqrBuf;
+    GpuMat varBuf;
+    GpuMat stddevBuf;
 
-    if(gsrc.type() == CV_8UC1)
-        nppSafeCall( nppiMean_StdDev_8u_C1R(gsrc.ptr<Npp8u>(), static_cast<int>(gsrc.step), sz, buf.ptr<Npp8u>(), gdst.ptr<Npp64f>(), gdst.ptr<Npp64f>() + 1) );
-    else
-        nppSafeCall( nppiMean_StdDev_32f_C1R(gsrc.ptr<Npp32f>(), static_cast<int>(gsrc.step), sz, buf.ptr<Npp8u>(), gdst.ptr<Npp64f>(), gdst.ptr<Npp64f>() + 1) );
+    multiply(sumBuf, Scalar::all(invCount), meanBuf, 1.0, -1, stream);
+    multiply(sqrSumBuf, Scalar::all(invCount), sqrMeanBuf, 1.0, -1, stream);
+    multiply(meanBuf, meanBuf, meanSqrBuf, 1.0, -1, stream);
+    subtract(sqrMeanBuf, meanSqrBuf, varBuf, noArray(), -1, stream);
+    sqrt(varBuf, stddevBuf, stream);
+
+    meanBuf.copyTo(gdst.colRange(0, 1), stream);
+    stddevBuf.copyTo(gdst.colRange(1, 2), stream);
 
     syncOutput(gdst, dst, stream);
 }
@@ -223,29 +225,35 @@ void cv::cuda::meanStdDev(InputArray src, OutputArray dst, InputArray mask, Stre
 
     GpuMat gdst = getOutputMat(dst, 1, 2, CV_64FC1, stream);
 
-    NppiSize sz;
-    sz.width  = gsrc.cols;
-    sz.height = gsrc.rows;
+    // DTK's masked NPP mean/stddev path can launch an internal reduction kernel
+    // with 1024 threads even when the kernel is compiled with launch_bounds(256),
+    // which corrupts the result on HCU. Keep the public API unchanged and compute
+    // the same values via existing GPU reductions instead of falling back to CPU.
+    GpuMat sumBuf;
+    GpuMat sqrSumBuf;
+    GpuMat nzBuf;
 
-    int bufSize;
-#if (CUDA_VERSION <= 4020)
-        nppSafeCall( nppiMeanStdDev8uC1MRGetBufferHostSize(sz, &bufSize) );
-#else
-    if (gsrc.type() == CV_8UC1)
-        nppSafeCall( nppiMeanStdDevGetBufferHostSize_8u_C1MR(sz, &bufSize) );
-    else
-        nppSafeCall( nppiMeanStdDevGetBufferHostSize_32f_C1MR(sz, &bufSize) );
-#endif
+    calcSum(gsrc, sumBuf, gmask, stream);
+    calcSqrSum(gsrc, sqrSumBuf, gmask, stream);
+    countNonZero(gmask, nzBuf, stream);
 
-    BufferPool pool(stream);
-    GpuMat buf = pool.getBuffer(1, bufSize, gsrc.type());
+    GpuMat nz64;
+    nzBuf.convertTo(nz64, CV_64F, stream);
 
-    if(gsrc.type() == CV_8UC1)
-        nppSafeCall( nppiMean_StdDev_8u_C1MR(gsrc.ptr<Npp8u>(), static_cast<int>(gsrc.step), gmask.ptr<Npp8u>(), static_cast<int>(gmask.step),
-                                             sz, buf.ptr<Npp8u>(), gdst.ptr<Npp64f>(), gdst.ptr<Npp64f>() + 1) );
-    else
-        nppSafeCall( nppiMean_StdDev_32f_C1MR(gsrc.ptr<Npp32f>(), static_cast<int>(gsrc.step), gmask.ptr<Npp8u>(), static_cast<int>(gmask.step),
-                                              sz, buf.ptr<Npp8u>(), gdst.ptr<Npp64f>(), gdst.ptr<Npp64f>() + 1) );
+    GpuMat meanBuf;
+    GpuMat sqrMeanBuf;
+    GpuMat meanSqrBuf;
+    GpuMat varBuf;
+    GpuMat stddevBuf;
+
+    divide(sumBuf, nz64, meanBuf, 1.0, -1, stream);
+    divide(sqrSumBuf, nz64, sqrMeanBuf, 1.0, -1, stream);
+    multiply(meanBuf, meanBuf, meanSqrBuf, 1.0, -1, stream);
+    subtract(sqrMeanBuf, meanSqrBuf, varBuf, noArray(), -1, stream);
+    sqrt(varBuf, stddevBuf, stream);
+
+    meanBuf.copyTo(gdst.colRange(0, 1), stream);
+    stddevBuf.copyTo(gdst.colRange(1, 2), stream);
 
     syncOutput(gdst, dst, stream);
 }

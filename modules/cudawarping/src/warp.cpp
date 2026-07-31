@@ -243,6 +243,10 @@ void cv::cuda::warpAffine(InputArray _src, OutputArray _dst, InputArray _M, Size
     bool useNpp = borderMode == BORDER_CONSTANT && ofs.x == 0 && ofs.y == 0 && useNppTab[src.depth()][src.channels() - 1][interpolation];
     // NPP bug on float data
     useNpp = useNpp && src.depth() != CV_32F;
+    // DTK NPP warpAffine is inaccurate for some 8-bit paths, use the native CUDA kernel instead.
+    useNpp = useNpp && !((src.depth() == CV_8U && src.channels() == 1 && interpolation == INTER_CUBIC) ||
+                         (src.depth() == CV_8U && src.channels() == 3 &&
+                          (interpolation == INTER_LINEAR || interpolation == INTER_CUBIC)));
 
     if (useNpp)
     {
@@ -382,6 +386,10 @@ void cv::cuda::warpPerspective(InputArray _src, OutputArray _dst, InputArray _M,
     bool useNpp = borderMode == BORDER_CONSTANT && ofs.x == 0 && ofs.y == 0 && useNppTab[src.depth()][src.channels() - 1][interpolation];
     // NPP bug on float data
     useNpp = useNpp && src.depth() != CV_32F;
+    // DTK NPP warpAffine is inaccurate for some 8-bit paths, use the native CUDA kernel instead.
+    useNpp = useNpp && !((src.depth() == CV_8U && src.channels() == 1 && interpolation == INTER_CUBIC) ||
+                         (src.depth() == CV_8U && src.channels() == 3 &&
+                          (interpolation == INTER_LINEAR || interpolation == INTER_CUBIC)));
 
     if (useNpp)
     {

@@ -148,6 +148,9 @@ namespace
         Ptr<VideoParser> videoParser_ = 0;
 
         CUvideoctxlock lock_;
+        CUcontext ctx_;
+        CUdevice cuDevice_;
+        bool ownsPrimaryCtx_;
 
         std::deque< std::pair<CUVIDPARSERDISPINFO, CUVIDPROCPARAMS> > frames_;
         std::vector<RawPacket> rawPackets;
@@ -179,18 +182,41 @@ namespace
     VideoReaderImpl::VideoReaderImpl(const Ptr<VideoSource>& source, const int minNumDecodeSurfaces, const bool allowFrameDrop, const bool udpSource,
         const Size targetSz, const Rect srcRoi, const Rect targetRoi, const bool enableHistogram, const int firstFrameIdx) :
         videoSource_(source),
-        lock_(0)
+        lock_(0),
+        ctx_(0),
+        cuDevice_(0),
+        ownsPrimaryCtx_(false)
     {
         // init context
         GpuMat temp(1, 1, CV_8UC1);
         temp.release();
 
-        CUcontext ctx;
-        cuSafeCall( cuCtxGetCurrent(&ctx) );
-        cuSafeCall( cuvidCtxLockCreate(&lock_, ctx) );
+        cuSafeCall(cuCtxGetCurrent(&ctx_));
+        if (!ctx_)
+        {
+            int deviceId = cv::cuda::getDevice();
+            cuSafeCall(cuDeviceGet(&cuDevice_, deviceId));
+            cuSafeCall(cuDevicePrimaryCtxRetain(&ctx_, cuDevice_));
+            ownsPrimaryCtx_ = true;
+        }
+
+        CUcontext prevCtx = 0;
+        cuSafeCall(cuCtxGetCurrent(&prevCtx));
+        const bool needPushCtx = prevCtx != ctx_;
+        if (needPushCtx)
+            cuSafeCall(cuCtxPushCurrent(ctx_));
+
+        cuSafeCall(cuvidCtxLockCreate(&lock_, ctx_));
         frameQueue_.reset(new FrameQueue());
-        videoDecoder_.reset(new VideoDecoder(videoSource_->format().codec, minNumDecodeSurfaces, targetSz, srcRoi, targetRoi, enableHistogram, ctx, lock_));
+        videoDecoder_.reset(new VideoDecoder(videoSource_->format().codec, minNumDecodeSurfaces, targetSz, srcRoi, targetRoi, enableHistogram, ctx_, lock_));
         videoParser_.reset(new VideoParser(videoDecoder_, frameQueue_, allowFrameDrop, udpSource));
+
+        if (needPushCtx)
+        {
+            CUcontext poppedCtx = 0;
+            cuSafeCall(cuCtxPopCurrent(&poppedCtx));
+            CV_Assert(poppedCtx == ctx_);
+        }
         videoSource_->setVideoParser(videoParser_);
         videoSource_->start();
         waitForDecoderInit();
@@ -203,6 +229,10 @@ namespace
     {
         frameQueue_->endDecode();
         videoSource_->stop();
+        if (lock_)
+            cuvidCtxLockDestroy(lock_);
+        if (ownsPrimaryCtx_)
+            cuDevicePrimaryCtxRelease(cuDevice_);
     }
 
     class VideoCtxAutoLock
@@ -289,14 +319,16 @@ namespace
 
             // map decoded video frame to CUDA surface
             GpuMat decodedFrame = videoDecoder_->mapFrame(frameInfo.first.picture_index, frameInfo.second);
-
-            cvtFromNv12(decodedFrame, frame, videoDecoder_->targetWidth(), videoDecoder_->targetHeight(), colorFormat, videoDecoder_->format().videoFullRangeFlag, stream);
+            cvtFromNv12(decodedFrame, frame, videoDecoder_->targetWidth(), videoDecoder_->targetHeight(), colorFormat, fmt.videoFullRangeFlag, stream);
 
             if (fmt.enableHistogram) {
                 const size_t histogramSz = 4 * fmt.nMaxHistogramBins;
                 histogram.create(1, fmt.nMaxHistogramBins, CV_32S);
                 cuSafeCall(cuMemcpyDtoDAsync((CUdeviceptr)(histogram.data), cuHistogramPtr, histogramSz, StreamAccessor::getStream(stream)));
             }
+
+            // DTK surface mappings must stay valid until downstream CUDA/NPP work finishes.
+            stream.waitForCompletion();
 
             // unmap video frame
             // unmapFrame() synchronizes with the VideoDecode API (ensures the frame has finished decoding)

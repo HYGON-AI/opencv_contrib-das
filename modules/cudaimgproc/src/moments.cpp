@@ -57,11 +57,23 @@ Moments cv::cuda::moments(InputArray src, const bool binary, const MomentsOrder 
     HostMem dst;
     spatialMoments(src, dst, binary, order, momentsType, stream);
     stream.waitForCompletion();
+
+    const int nMoments = numMoments(order);
     Mat moments = dst.createMatHeader();
-    if(momentsType == CV_32F)
-        return Moments(moments.at<float>(0), moments.at<float>(1), moments.at<float>(2), moments.at<float>(3), moments.at<float>(4), moments.at<float>(5), moments.at<float>(6), moments.at<float>(7), moments.at<float>(8), moments.at<float>(9));
+    Mat fullMoments = Mat::zeros(1, 10, CV_64F);
+
+    if (momentsType == CV_32F)
+    {
+        Mat moments64F;
+        moments.convertTo(moments64F, CV_64F);
+        moments64F.colRange(0, nMoments).copyTo(fullMoments.colRange(0, nMoments));
+    }
     else
-        return Moments(moments.at<double>(0), moments.at<double>(1), moments.at<double>(2), moments.at<double>(3), moments.at<double>(4), moments.at<double>(5), moments.at<double>(6), moments.at<double>(7), moments.at<double>(8), moments.at<double>(9));
+    {
+        moments.colRange(0, nMoments).copyTo(fullMoments.colRange(0, nMoments));
+    }
+
+    return Moments(fullMoments.at<double>(0), fullMoments.at<double>(1), fullMoments.at<double>(2), fullMoments.at<double>(3), fullMoments.at<double>(4), fullMoments.at<double>(5), fullMoments.at<double>(6), fullMoments.at<double>(7), fullMoments.at<double>(8), fullMoments.at<double>(9));
 }
 
 #endif /* !defined (HAVE_CUDA) */

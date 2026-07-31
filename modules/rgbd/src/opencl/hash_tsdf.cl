@@ -351,127 +351,13 @@ static struct TsdfVoxel atVolumeUnit(int3 volumeIdx, int3 volumeUnitIdx, int row
     return volData[coordBase];
 }
 
-inline float interpolate(float3 t, float8 vz)
+static inline float interpolate(float3 t, float8 vz)
 {
     float4 vy = mix(vz.s0246, vz.s1357, t.z);
     float2 vx = mix(vy.s02, vy.s13, t.y);
     return mix(vx.s0, vx.s1, t.x);
 }
 
-inline float3 getNormalVoxel(float3 ptVox, __global const struct TsdfVoxel* allVolumePtr,
-                             int volumeUnitDegree,
-                             const int hash_divisor,
-                             __global const int* hashes,
-                             __global const int4* data,
-
-                             int3 volStrides, int table_offset)
-{
-    float3 normal = (float3) (0.0f, 0.0f, 0.0f);
-    float3 fip = floor(ptVox);
-    int3 iptVox = convert_int3(fip);
-
-    // A small hash table to reduce a number of findRow() calls
-    // -2 and lower means not queried yet
-    // -1 means not found
-    // 0+ means found
-    int iterMap[8];
-    for (int i = 0; i < 8; i++)
-    {
-        iterMap[i] = -2;
-    }
-
-#if !USE_INTERPOLATION_IN_GETNORMAL
-    int4 offsets[] = { (int4)( 1,  0,  0, 0), (int4)(-1,  0,  0, 0), (int4)( 0,  1,  0, 0), // 0-3
-                       (int4)( 0, -1,  0, 0), (int4)( 0,  0,  1, 0), (int4)( 0,  0, -1, 0)  // 4-7
-    };
-
-    const int nVals = 6;
-    float vals[6];
-#else
-    int4 offsets[]={(int4)( 0,  0,  0, 0), (int4)( 0,  0,  1, 0), (int4)( 0,  1,  0, 0), (int4)( 0,  1,  1, 0), //  0-3
-                    (int4)( 1,  0,  0, 0), (int4)( 1,  0,  1, 0), (int4)( 1,  1,  0, 0), (int4)( 1,  1,  1, 0), //  4-7
-                    (int4)(-1,  0,  0, 0), (int4)(-1,  0,  1, 0), (int4)(-1,  1,  0, 0), (int4)(-1,  1,  1, 0), //  8-11
-                    (int4)( 2,  0,  0, 0), (int4)( 2,  0,  1, 0), (int4)( 2,  1,  0, 0), (int4)( 2,  1,  1, 0), // 12-15
-                    (int4)( 0, -1,  0, 0), (int4)( 0, -1,  1, 0), (int4)( 1, -1,  0, 0), (int4)( 1, -1,  1, 0), // 16-19
-                    (int4)( 0,  2,  0, 0), (int4)( 0,  2,  1, 0), (int4)( 1,  2,  0, 0), (int4)( 1,  2,  1, 0), // 20-23
-                    (int4)( 0,  0, -1, 0), (int4)( 0,  1, -1, 0), (int4)( 1,  0, -1, 0), (int4)( 1,  1, -1, 0), // 24-27
-                    (int4)( 0,  0,  2, 0), (int4)( 0,  1,  2, 0), (int4)( 1,  0,  2, 0), (int4)( 1,  1,  2, 0), // 28-31
-    };
-    const int nVals = 32;
-    float vals[32];
-#endif
-
-    for (int i = 0; i < nVals; i++)
-    {
-        int3 pt = iptVox + offsets[i].s012;
-
-        // VoxelToVolumeUnitIdx()
-        int3 volumeUnitIdx = pt >> volumeUnitDegree;
-
-        int3 vand = (volumeUnitIdx & 1);
-        int dictIdx = vand.s0 + vand.s1 * 2 + vand.s2 * 4;
-
-        int it = iterMap[dictIdx];
-        if (it < -1)
-        {
-            it = custom_find(volumeUnitIdx, hash_divisor, hashes, data);
-            iterMap[dictIdx] = it;
-        }
-
-        struct TsdfVoxel tmp = atVolumeUnit(pt, volumeUnitIdx, it, volumeUnitDegree, volStrides, allVolumePtr, table_offset);
-        vals[i] = tsdfToFloat( tmp.tsdf );
-    }
-
-#if !USE_INTERPOLATION_IN_GETNORMAL
-    float3 pv, nv;
-
-    pv = (float3)(vals[0*2  ], vals[1*2  ], vals[2*2  ]);
-    nv = (float3)(vals[0*2+1], vals[1*2+1], vals[2*2+1]);
-    normal = pv - nv;
-#else
-
-    float cxv[8], cyv[8], czv[8];
-
-    // How these numbers were obtained:
-    // 1. Take the basic interpolation sequence:
-    // 000, 001, 010, 011, 100, 101, 110, 111
-    // where each digit corresponds to shift by x, y, z axis respectively.
-    // 2. Add +1 for next or -1 for prev to each coordinate to corresponding axis
-    // 3. Search corresponding values in offsets
-    const int idxxn[8] = {  8,  9, 10, 11,  0,  1,  2,  3 };
-    const int idxxp[8] = {  4,  5,  6,  7, 12, 13, 14, 15 };
-    const int idxyn[8] = { 16, 17,  0,  1, 18, 19,  4,  5 };
-    const int idxyp[8] = {  2,  3, 20, 21,  6,  7, 22, 23 };
-    const int idxzn[8] = { 24,  0, 25,  2, 26,  4, 27,  6 };
-    const int idxzp[8] = {  1, 28,  3, 29,  5, 30,  7, 31 };
-
-    float vcxp[8], vcxn[8];
-    float vcyp[8], vcyn[8];
-    float vczp[8], vczn[8];
-
-    for (int i = 0; i < 8; i++)
-    {
-        vcxp[i] = vals[idxxp[i]]; vcxn[i] = vals[idxxn[i]];
-        vcyp[i] = vals[idxyp[i]]; vcyn[i] = vals[idxyn[i]];
-        vczp[i] = vals[idxzp[i]]; vczn[i] = vals[idxzn[i]];
-    }
-
-    float8 cxp = vload8(0, vcxp), cxn = vload8(0, vcxn);
-    float8 cyp = vload8(0, vcyp), cyn = vload8(0, vcyn);
-    float8 czp = vload8(0, vczp), czn = vload8(0, vczn);
-    float8 cx = cxp - cxn;
-    float8 cy = cyp - cyn;
-    float8 cz = czp - czn;
-
-    float3 tv = ptVox - fip;
-    normal.x = interpolate(tv, cx);
-    normal.y = interpolate(tv, cy);
-    normal.z = interpolate(tv, cz);
-#endif
-
-    float norm = sqrt(dot(normal, normal));
-    return norm < 0.0001f ? nan((uint)0) : normal / norm;
-}
 
 typedef float4 ptype;
 
@@ -569,17 +455,81 @@ __kernel void raycast(
             if ( !isnan(tInterp) && !isinf(tInterp) )
             {
                 float3 pvox = origScaled + tInterp * dirScaled;
-                float3 nv = getNormalVoxel( pvox, allVolumePtr, volumeUnitDegree,
-                                            hash_divisor, hashes, data,
-                                            volStrides, table_offset);
+                float3 nv = (float3) (0.0f, 0.0f, 0.0f);
+                {
+                    float3 normalVoxel = (float3) (0.0f, 0.0f, 0.0f);
+                    float3 fip = floor(pvox);
+                    int3 iptVox = convert_int3(fip);
+                    int iterMap[8];
+                    for (int i = 0; i < 8; i++)
+                        iterMap[i] = -2;
+#if !USE_INTERPOLATION_IN_GETNORMAL
+                    int4 offsets[] = { (int4)( 1,  0,  0, 0), (int4)(-1,  0,  0, 0), (int4)( 0,  1,  0, 0),
+                                       (int4)( 0, -1,  0, 0), (int4)( 0,  0,  1, 0), (int4)( 0,  0, -1, 0) };
+                    const int nVals = 6;
+                    float vals[6];
+#else
+                    int4 offsets[]={(int4)( 0,  0,  0, 0), (int4)( 0,  0,  1, 0), (int4)( 0,  1,  0, 0), (int4)( 0,  1,  1, 0),
+                                    (int4)( 1,  0,  0, 0), (int4)( 1,  0,  1, 0), (int4)( 1,  1,  0, 0), (int4)( 1,  1,  1, 0),
+                                    (int4)(-1,  0,  0, 0), (int4)(-1,  0,  1, 0), (int4)(-1,  1,  0, 0), (int4)(-1,  1,  1, 0),
+                                    (int4)( 2,  0,  0, 0), (int4)( 2,  0,  1, 0), (int4)( 2,  1,  0, 0), (int4)( 2,  1,  1, 0),
+                                    (int4)( 0, -1,  0, 0), (int4)( 0, -1,  1, 0), (int4)( 1, -1,  0, 0), (int4)( 1, -1,  1, 0),
+                                    (int4)( 0,  2,  0, 0), (int4)( 0,  2,  1, 0), (int4)( 1,  2,  0, 0), (int4)( 1,  2,  1, 0),
+                                    (int4)( 0,  0, -1, 0), (int4)( 0,  1, -1, 0), (int4)( 1,  0, -1, 0), (int4)( 1,  1, -1, 0),
+                                    (int4)( 0,  0,  2, 0), (int4)( 0,  1,  2, 0), (int4)( 1,  0,  2, 0), (int4)( 1,  1,  2, 0) };
+                    const int nVals = 32;
+                    float vals[32];
+#endif
+                    for (int i = 0; i < nVals; i++)
+                    {
+                        int3 pt = iptVox + offsets[i].s012;
+                        int3 volumeUnitIdx = pt >> volumeUnitDegree;
+                        int3 vand = (volumeUnitIdx & 1);
+                        int dictIdx = vand.s0 + vand.s1 * 2 + vand.s2 * 4;
+                        int it = iterMap[dictIdx];
+                        if (it < -1)
+                        {
+                            it = custom_find(volumeUnitIdx, hash_divisor, hashes, data);
+                            iterMap[dictIdx] = it;
+                        }
+                        struct TsdfVoxel tmp = atVolumeUnit(pt, volumeUnitIdx, it, volumeUnitDegree, volStrides, allVolumePtr, table_offset);
+                        vals[i] = tsdfToFloat(tmp.tsdf);
+                    }
+#if !USE_INTERPOLATION_IN_GETNORMAL
+                    float3 pv = (float3)(vals[0], vals[2], vals[4]);
+                    float3 nn = (float3)(vals[1], vals[3], vals[5]);
+                    normalVoxel = pv - nn;
+#else
+                    const int idxxn[8] = {  8,  9, 10, 11,  0,  1,  2,  3 };
+                    const int idxxp[8] = {  4,  5,  6,  7, 12, 13, 14, 15 };
+                    const int idxyn[8] = { 16, 17,  0,  1, 18, 19,  4,  5 };
+                    const int idxyp[8] = {  2,  3, 20, 21,  6,  7, 22, 23 };
+                    const int idxzn[8] = { 24,  0, 25,  2, 26,  4, 27,  6 };
+                    const int idxzp[8] = {  1, 28,  3, 29,  5, 30,  7, 31 };
+                    float vcxp[8], vcxn[8], vcyp[8], vcyn[8], vczp[8], vczn[8];
+                    for (int i = 0; i < 8; i++)
+                    {
+                        vcxp[i] = vals[idxxp[i]]; vcxn[i] = vals[idxxn[i]];
+                        vcyp[i] = vals[idxyp[i]]; vcyn[i] = vals[idxyn[i]];
+                        vczp[i] = vals[idxzp[i]]; vczn[i] = vals[idxzn[i]];
+                    }
+                    float8 cx = vload8(0, vcxp) - vload8(0, vcxn);
+                    float8 cy = vload8(0, vcyp) - vload8(0, vcyn);
+                    float8 cz = vload8(0, vczp) - vload8(0, vczn);
+                    float3 tv = pvox - fip;
+                    normalVoxel.x = interpolate(tv, cx);
+                    normalVoxel.y = interpolate(tv, cy);
+                    normalVoxel.z = interpolate(tv, cz);
+#endif
+                    float normVoxel = sqrt(dot(normalVoxel, normalVoxel));
+                    nv = normVoxel < 0.0001f ? nan((uint)0) : normalVoxel / normVoxel;
+                }
 
                 if(!any(isnan(nv)))
                 {
-                    //convert pv and nv to camera space
                     normal = (float3)(dot(nv, volRot0),
                                       dot(nv, volRot1),
                                       dot(nv, volRot2));
-                    // interpolation optimized a little
                     float3 pv = pvox * voxelSize;
                     point = (float3)(dot(pv, volRot0),
                                      dot(pv, volRot1),

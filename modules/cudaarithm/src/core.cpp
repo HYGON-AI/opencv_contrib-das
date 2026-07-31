@@ -61,6 +61,10 @@ void cv::cuda::copyMakeBorder(InputArray, OutputArray, int, int, int, int, int, 
 
 #else /* !defined (HAVE_CUDA) */
 
+namespace cv { namespace cuda { namespace device {
+void flip(const GpuMat& src, GpuMat& dst, int flipCode, Stream& stream);
+}}}
+
 ////////////////////////////////////////////////////////////////////////
 // flip
 
@@ -168,10 +172,55 @@ void cv::cuda::flip(InputArray _src, OutputArray _dst, int flipCode, Stream& str
     if (isInplace && isSizeOdd)
         CV_Error(Error::BadROISize, "In-place version of flip only accepts even width/height");
 
-    if (isInplace == false)
-        funcs[src.depth()][src.channels() - 1](src, dst, flipCode, StreamAccessor::getStream(stream));
-    else // in-place
-        ifuncs[src.depth()][src.channels() - 1](src, flipCode, StreamAccessor::getStream(stream));
+    const cudaStream_t cudaStream = StreamAccessor::getStream(stream);
+
+    Size srcWholeSize;
+    Size dstWholeSize;
+    Point srcOfs;
+    Point dstOfs;
+    src.locateROI(srcWholeSize, srcOfs);
+    dst.locateROI(dstWholeSize, dstOfs);
+    const bool srcIsSubmatrix = srcOfs.x != 0 || srcOfs.y != 0 || srcWholeSize != src.size();
+    const bool dstIsSubmatrix = dstOfs.x != 0 || dstOfs.y != 0 || dstWholeSize != dst.size();
+    const bool useTempSubmatrixPath = srcIsSubmatrix || dstIsSubmatrix;
+    const bool useCudaFallback = true;
+
+    if (useCudaFallback)
+    {
+        GpuMat srcCont;
+        GpuMat dstCont;
+
+        if (isInplace)
+        {
+            src.copyTo(srcCont, stream);
+            dstCont = src;
+        }
+        else if (useTempSubmatrixPath)
+        {
+            src.copyTo(srcCont, stream);
+            dstCont.create(src.size(), src.type());
+        }
+        else
+        {
+            srcCont = src;
+            dstCont = dst;
+        }
+
+        cv::cuda::device::flip(srcCont, dstCont, flipCode, stream);
+
+        if (!isInplace && useTempSubmatrixPath)
+            dstCont.copyTo(dst, stream);
+        else if (isInplace)
+            srcCont.release();
+    }
+    else if (isInplace == false)
+    {
+        funcs[src.depth()][src.channels() - 1](src, dst, flipCode, cudaStream);
+    }
+    else
+    {
+        ifuncs[src.depth()][src.channels() - 1](src, flipCode, cudaStream);
+    }
 
     syncOutput(dst, _dst, stream);
 }
