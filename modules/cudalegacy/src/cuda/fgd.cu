@@ -184,7 +184,13 @@ namespace fgd
         __shared__ unsigned int data2[MERGE_THREADBLOCK_SIZE];
 
         plus<unsigned int> op;
+#ifdef DAS_ADAPT
+        reduce<MERGE_THREADBLOCK_SIZE>(data0, sum0, threadIdx.x, op);
+        reduce<MERGE_THREADBLOCK_SIZE>(data1, sum1, threadIdx.x, op);
+        reduce<MERGE_THREADBLOCK_SIZE>(data2, sum2, threadIdx.x, op);
+#else
         reduce<MERGE_THREADBLOCK_SIZE>(smem_tuple(data0, data1, data2), thrust::tie(sum0, sum1, sum2), threadIdx.x, thrust::make_tuple(op, op, op));
+#endif
 
         if(threadIdx.x == 0)
         {

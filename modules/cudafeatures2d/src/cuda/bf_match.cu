@@ -72,7 +72,41 @@ namespace cv { namespace cuda { namespace device
             s_trainIdx += threadIdx.y * BLOCK_SIZE;
             s_imgIdx   += threadIdx.y * BLOCK_SIZE;
 
+#ifdef DAS_ADAPT
+            s_distance[threadIdx.x] = bestDistance;
+            s_trainIdx[threadIdx.x] = bestTrainIdx;
+            s_imgIdx[threadIdx.x] = bestImgIdx;
+            __syncthreads();
+
+            if (threadIdx.x == 0)
+            {
+                float bestDistanceVal = s_distance[0];
+                int bestTrainIdxVal = s_trainIdx[0];
+                int bestImgIdxVal = s_imgIdx[0];
+
+                #pragma unroll
+                for (int i = 1; i < BLOCK_SIZE; ++i)
+                {
+                    if (s_distance[i] < bestDistanceVal)
+                    {
+                        bestDistanceVal = s_distance[i];
+                        bestTrainIdxVal = s_trainIdx[i];
+                        bestImgIdxVal = s_imgIdx[i];
+                    }
+                }
+
+                s_distance[0] = bestDistanceVal;
+                s_trainIdx[0] = bestTrainIdxVal;
+                s_imgIdx[0] = bestImgIdxVal;
+            }
+
+            __syncthreads();
+            bestDistance = s_distance[0];
+            bestTrainIdx = s_trainIdx[0];
+            bestImgIdx = s_imgIdx[0];
+#else
             reduceKeyVal<BLOCK_SIZE>(s_distance, bestDistance, smem_tuple(s_trainIdx, s_imgIdx), thrust::tie(bestTrainIdx, bestImgIdx), threadIdx.x, less<float>());
+#endif
         }
 
         ///////////////////////////////////////////////////////////////////////////////

@@ -19,6 +19,29 @@ namespace cv {  namespace cudev {
 //! @addtogroup cudev
 //! @{
 
+#ifdef DAS_ADAPT
+    template <class R, class T>
+    __device__ __forceinline__ R textureDirectReadCast(const T& value)
+    {
+        return static_cast<R>(value);
+    }
+
+    template <>
+    __device__ __forceinline__ float textureDirectReadCast<float, uchar>(const uchar& value)
+    {
+        return value * (1.0f / 255.0f);
+    }
+
+    template <>
+    __device__ __forceinline__ float4 textureDirectReadCast<float4, uchar4>(const uchar4& value)
+    {
+        return make_float4(value.x * (1.0f / 255.0f),
+                           value.y * (1.0f / 255.0f),
+                           value.z * (1.0f / 255.0f),
+                           value.w * (1.0f / 255.0f));
+    }
+#endif
+
     /** @brief Simple lightweight structures that encapsulate information about an image texture on the device.
     * They are intended to be passed to nvcc-compiled code.
     */
@@ -28,14 +51,47 @@ namespace cv {  namespace cudev {
         typedef float index_type;
         __host__ TexturePtr() {};
         __host__ TexturePtr(const cudaTextureObject_t tex_) : tex(tex_) {};
+#ifdef DAS_ADAPT
+        __host__ TexturePtr(const cudaTextureObject_t tex_, const T* data_, const size_t step_, const int rows_, const int cols_, const bool direct_access_) :
+            tex(tex_), data(data_), step(step_), rows(rows_), cols(cols_), direct_access(direct_access_) {};
+#endif
         __device__ __forceinline__ R operator ()(index_type y, index_type x) const {
+#ifdef DAS_ADAPT
+            if (direct_access)
+            {
+                int yi = static_cast<int>(y);
+                int xi = static_cast<int>(x);
+                if (yi < 0) yi = 0;
+                else if (yi >= rows) yi = rows - 1;
+                if (xi < 0) xi = 0;
+                else if (xi >= cols) xi = cols - 1;
+                const T value = reinterpret_cast<const T*>(reinterpret_cast<const unsigned char*>(data) + yi * step)[xi];
+                return textureDirectReadCast<R>(value);
+            }
+#endif
             return tex2D<R>(tex, x, y);
         }
         __device__ __forceinline__ R operator ()(index_type x) const {
+#ifdef DAS_ADAPT
+            if (direct_access)
+            {
+                int xi = static_cast<int>(x);
+                if (xi < 0) xi = 0;
+                else if (xi >= cols) xi = cols - 1;
+                return textureDirectReadCast<R>(data[xi]);
+            }
+#endif
             return tex1Dfetch<R>(tex, x);
         }
     private:
         cudaTextureObject_t tex;
+#ifdef DAS_ADAPT
+        const T* data = 0;
+        size_t step = 0;
+        int rows = 0;
+        int cols = 0;
+        bool direct_access = false;
+#endif
     };
 
     // textures are a maximum of 32 bits wide, 64 bits is read as two 32 bit wide values
@@ -44,16 +100,50 @@ namespace cv {  namespace cudev {
         typedef float index_type;
         __host__ TexturePtr() {};
         __host__ TexturePtr(const cudaTextureObject_t tex_) : tex(tex_) {};
+#ifdef DAS_ADAPT
+        __host__ TexturePtr(const cudaTextureObject_t tex_, const uint64* data_, const size_t step_, const int rows_, const int cols_, const bool direct_access_) :
+            tex(tex_), data(data_), step(step_), rows(rows_), cols(cols_), direct_access(direct_access_) {};
+#endif
         __device__ __forceinline__ R operator ()(index_type y, index_type x) const {
+#ifdef DAS_ADAPT
+            if (direct_access)
+            {
+                int yi = static_cast<int>(y);
+                int xi = static_cast<int>(x);
+                if (yi < 0) yi = 0;
+                else if (yi >= rows) yi = rows - 1;
+                if (xi < 0) xi = 0;
+                else if (xi >= cols) xi = cols - 1;
+                const uint64 retVal = reinterpret_cast<const uint64*>(reinterpret_cast<const unsigned char*>(data) + yi * step)[xi];
+                return *(reinterpret_cast<const R*>(&retVal));
+            }
+#endif
             const uint2 retVal = tex2D<uint2>(tex, x, y);
             return *(reinterpret_cast<const R*>(&retVal));
         }
         __device__ __forceinline__ R operator ()(index_type x) const {
+#ifdef DAS_ADAPT
+            if (direct_access)
+            {
+                int xi = static_cast<int>(x);
+                if (xi < 0) xi = 0;
+                else if (xi >= cols) xi = cols - 1;
+                const uint64 retVal = data[xi];
+                return *(reinterpret_cast<const R*>(&retVal));
+            }
+#endif
             const uint2 retVal = tex1Dfetch<uint2>(tex, x);
             return *(reinterpret_cast<const R*>(&retVal));
         }
     private:
         cudaTextureObject_t tex;
+#ifdef DAS_ADAPT
+        const uint64* data = 0;
+        size_t step = 0;
+        int rows = 0;
+        int cols = 0;
+        bool direct_access = false;
+#endif
     };
 
     template<class T, class R = T>
@@ -61,13 +151,37 @@ namespace cv {  namespace cudev {
         typedef R     elem_type;
         typedef float index_type;
         __host__ TextureOffPtr(const cudaTextureObject_t tex_, const int yoff_, const int xoff_) : tex(tex_), yoff(yoff_), xoff(xoff_) {};
+#ifdef DAS_ADAPT
+        __host__ TextureOffPtr(const cudaTextureObject_t tex_, const int yoff_, const int xoff_, const T* data_, const size_t step_, const int rows_, const int cols_, const bool direct_access_) :
+            tex(tex_), yoff(yoff_), xoff(xoff_), data(data_), step(step_), rows(rows_), cols(cols_), direct_access(direct_access_) {};
+#endif
         __device__ __forceinline__ R operator ()(index_type y, index_type x) const {
+#ifdef DAS_ADAPT
+            if (direct_access)
+            {
+                int yi = static_cast<int>(y) + yoff;
+                int xi = static_cast<int>(x) + xoff;
+                if (yi < 0) yi = 0;
+                else if (yi >= rows) yi = rows - 1;
+                if (xi < 0) xi = 0;
+                else if (xi >= cols) xi = cols - 1;
+                const T value = reinterpret_cast<const T*>(reinterpret_cast<const unsigned char*>(data) + yi * step)[xi];
+                return textureDirectReadCast<R>(value);
+            }
+#endif
             return tex2D<R>(tex, x + xoff, y + yoff);
         }
     private:
         cudaTextureObject_t tex;
         int xoff = 0;
         int yoff = 0;
+#ifdef DAS_ADAPT
+        const T* data = 0;
+        size_t step = 0;
+        int rows = 0;
+        int cols = 0;
+        bool direct_access = false;
+#endif
     };
 
     /** @brief non-copyable smart CUDA texture object
@@ -215,13 +329,15 @@ namespace cv {  namespace cudev {
 
         __host__ Texture(const int rows_, const int cols_, T* data, const size_t step, const bool normalizedCoords = false, const cudaTextureFilterMode filterMode = cudaFilterModePoint,
             const cudaTextureAddressMode addressMode = cudaAddressModeClamp, const cudaTextureReadMode readMode = cudaReadModeElementType) :
-            rows(rows_), cols(cols_), texture(std::make_shared<UniqueTexture<T,R>>(rows, cols, data, step, normalizedCoords, filterMode, addressMode, readMode))
+            rows(rows_), cols(cols_), data(data), step(step), direct_access(!normalizedCoords && filterMode == cudaFilterModePoint && addressMode == cudaAddressModeClamp && readMode == cudaReadModeElementType),
+            texture(std::make_shared<UniqueTexture<T,R>>(rows, cols, data, step, normalizedCoords, filterMode, addressMode, readMode))
         {
         }
 
         __host__ Texture(const size_t sizeInBytes, T* data, const bool normalizedCoords = false, const cudaTextureFilterMode filterMode = cudaFilterModePoint,
             const cudaTextureAddressMode addressMode = cudaAddressModeClamp, const cudaTextureReadMode readMode = cudaReadModeElementType) :
-            rows(1), cols(static_cast<int>(sizeInBytes/sizeof(T))), texture(std::make_shared<UniqueTexture<T, R>>(sizeInBytes, data, normalizedCoords, filterMode, addressMode, readMode))
+            rows(1), cols(static_cast<int>(sizeInBytes/sizeof(T))), data(data), step(0), direct_access(!normalizedCoords && filterMode == cudaFilterModePoint && addressMode == cudaAddressModeClamp && readMode == cudaReadModeElementType),
+            texture(std::make_shared<UniqueTexture<T, R>>(sizeInBytes, data, normalizedCoords, filterMode, addressMode, readMode))
         {
         }
 
@@ -242,7 +358,11 @@ namespace cv {  namespace cudev {
 
         __host__ operator TexturePtr<T, R>() const {
             if (texture)
+#ifdef DAS_ADAPT
+                return TexturePtr<T, R>(texture->get(), data, step, rows, cols, direct_access);
+#else
                 return TexturePtr<T, R>(texture->get());
+#endif
             else
                 return TexturePtr<T, R>(cudaTextureObject_t());
         }
@@ -251,6 +371,11 @@ namespace cv {  namespace cudev {
         int cols = 0;
 
     protected:
+#ifdef DAS_ADAPT
+        T* data = 0;
+        size_t step = 0;
+        bool direct_access = false;
+#endif
         std::shared_ptr<UniqueTexture<T, R>> texture = 0;
     };
 
@@ -268,10 +393,11 @@ namespace cv {  namespace cudev {
         TextureOff(const TextureOff&) = default;
         TextureOff(TextureOff&&) = default;
 
-        __host__ TextureOff(const int rows, const int cols, T* data, const size_t step, const int yoff_ = 0, const int xoff_ = 0, const bool normalizedCoords = false,
+        __host__ TextureOff(const int rows_, const int cols_, T* data_, const size_t step_, const int yoff_ = 0, const int xoff_ = 0, const bool normalizedCoords = false,
             const cudaTextureFilterMode filterMode = cudaFilterModePoint, const cudaTextureAddressMode addressMode = cudaAddressModeClamp,
             const cudaTextureReadMode readMode = cudaReadModeElementType) :
-            texture(std::make_shared<UniqueTexture<T, R>>(rows, cols, data, step, normalizedCoords, filterMode, addressMode, readMode)), xoff(xoff_), yoff(yoff_)
+            rows(rows_), cols(cols_), data(data_), step(step_), direct_access(!normalizedCoords && filterMode == cudaFilterModePoint && addressMode == cudaAddressModeClamp && readMode == cudaReadModeElementType),
+            texture(std::make_shared<UniqueTexture<T, R>>(rows_, cols_, data_, step_, normalizedCoords, filterMode, addressMode, readMode)), xoff(xoff_), yoff(yoff_)
         {
         }
 
@@ -285,12 +411,23 @@ namespace cv {  namespace cudev {
         TextureOff& operator=(TextureOff&&) = default;
 
         __host__ operator TextureOffPtr<T, R>() const {
+#ifdef DAS_ADAPT
+            return TextureOffPtr<T, R>(texture->get(), yoff, xoff, data, step, rows, cols, direct_access);
+#else
             return TextureOffPtr<T, R>(texture->get(), yoff, xoff);
+#endif
         }
 
     private:
         int xoff = 0;
         int yoff = 0;
+#ifdef DAS_ADAPT
+        int rows = 0;
+        int cols = 0;
+        T* data = 0;
+        size_t step = 0;
+        bool direct_access = false;
+#endif
         std::shared_ptr<UniqueTexture<T, R>> texture = 0;
     };
 }}

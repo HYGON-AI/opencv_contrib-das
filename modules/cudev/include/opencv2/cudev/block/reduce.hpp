@@ -51,6 +51,7 @@
 #include "../warp/reduce.hpp"
 #include "detail/reduce.hpp"
 #include "detail/reduce_key_val.hpp"
+#include <type_traits>
 
 namespace cv { namespace cudev {
 
@@ -59,10 +60,132 @@ namespace cv { namespace cudev {
 
 // blockReduce
 
+#ifdef DAS_ADAPT
+namespace block_reduce_compat
+{
+    template <int N, class SmemTuple, class ValTuple, class OpTuple, int SIZE>
+    struct TupleReduce;
+
+    template <int N, class SmemTuple, class ValTuple, class OpTuple>
+    struct TupleReduce<N, SmemTuple, ValTuple, OpTuple, 2>
+    {
+        static __device__ __forceinline__ void run(const SmemTuple& smem, const ValTuple& val, uint tid, const OpTuple& op)
+        {
+            SmemTuple sm = smem;
+            ValTuple vl = val;
+            OpTuple ops = op;
+            blockReduce<N>(get<0>(sm), get<0>(vl), tid, get<0>(ops));
+            blockReduce<N>(get<1>(sm), get<1>(vl), tid, get<1>(ops));
+        }
+    };
+
+    template <int N, class SmemTuple, class ValTuple, class OpTuple>
+    struct TupleReduce<N, SmemTuple, ValTuple, OpTuple, 3>
+    {
+        static __device__ __forceinline__ void run(const SmemTuple& smem, const ValTuple& val, uint tid, const OpTuple& op)
+        {
+            SmemTuple sm = smem;
+            ValTuple vl = val;
+            OpTuple ops = op;
+            blockReduce<N>(get<0>(sm), get<0>(vl), tid, get<0>(ops));
+            blockReduce<N>(get<1>(sm), get<1>(vl), tid, get<1>(ops));
+            blockReduce<N>(get<2>(sm), get<2>(vl), tid, get<2>(ops));
+        }
+    };
+
+    template <int N, class SmemTuple, class ValTuple, class OpTuple>
+    struct TupleReduce<N, SmemTuple, ValTuple, OpTuple, 4>
+    {
+        static __device__ __forceinline__ void run(const SmemTuple& smem, const ValTuple& val, uint tid, const OpTuple& op)
+        {
+            SmemTuple sm = smem;
+            ValTuple vl = val;
+            OpTuple ops = op;
+            blockReduce<N>(get<0>(sm), get<0>(vl), tid, get<0>(ops));
+            blockReduce<N>(get<1>(sm), get<1>(vl), tid, get<1>(ops));
+            blockReduce<N>(get<2>(sm), get<2>(vl), tid, get<2>(ops));
+            blockReduce<N>(get<3>(sm), get<3>(vl), tid, get<3>(ops));
+        }
+    };
+
+    template <int N, class KeyTuple, class KeyValTuple, class ValTuple, class ValValTuple, class CmpTuple, int SIZE>
+    struct TupleReduceKeyVal;
+
+    template <int N, class KeyTuple, class KeyValTuple, class ValTuple, class ValValTuple, class CmpTuple>
+    struct TupleReduceKeyVal<N, KeyTuple, KeyValTuple, ValTuple, ValValTuple, CmpTuple, 2>
+    {
+        static __device__ __forceinline__ void run(const KeyTuple& skeys, const KeyValTuple& key, const ValTuple& svals, const ValValTuple& val, uint tid, const CmpTuple& cmp)
+        {
+            KeyTuple ks = skeys;
+            KeyValTuple kv = key;
+            ValTuple vs = svals;
+            ValValTuple vv = val;
+            CmpTuple cp = cmp;
+            blockReduceKeyVal<N>(get<0>(ks), get<0>(kv), get<0>(vs), get<0>(vv), tid, get<0>(cp));
+            blockReduceKeyVal<N>(get<1>(ks), get<1>(kv), get<1>(vs), get<1>(vv), tid, get<1>(cp));
+        }
+    };
+}
+#endif
+
 template <int N, typename T, class Op>
 __device__ __forceinline__ void blockReduce(volatile T* smem, T& val, uint tid, const Op& op)
 {
     block_reduce_detail::Dispatcher<N>::reductor::template reduce<volatile T*, T&, const Op&>(smem, val, tid, op);
+}
+
+template <int N, typename P0, typename P1, typename R0, typename R1, class Op0, class Op1>
+__device__ __forceinline__ void blockReduce(const tuple<P0, P1>& smem,
+                                            const tuple<R0, R1>& val,
+                                            uint tid,
+                                            const tuple<Op0, Op1>& op)
+{
+#ifdef DAS_ADAPT
+    blockReduce<N>(get<0>(smem), get<0>(val), tid, get<0>(op));
+    blockReduce<N>(get<1>(smem), get<1>(val), tid, get<1>(op));
+#else
+    block_reduce_detail::Dispatcher<N>::reductor::template reduce<
+            const tuple<P0, P1>&,
+            const tuple<R0, R1>&,
+            const tuple<Op0, Op1>&>(smem, val, tid, op);
+#endif
+}
+
+template <int N, typename P0, typename P1, typename P2, typename R0, typename R1, typename R2, class Op0, class Op1, class Op2>
+__device__ __forceinline__ void blockReduce(const tuple<P0, P1, P2>& smem,
+                                            const tuple<R0, R1, R2>& val,
+                                            uint tid,
+                                            const tuple<Op0, Op1, Op2>& op)
+{
+#ifdef DAS_ADAPT
+    blockReduce<N>(get<0>(smem), get<0>(val), tid, get<0>(op));
+    blockReduce<N>(get<1>(smem), get<1>(val), tid, get<1>(op));
+    blockReduce<N>(get<2>(smem), get<2>(val), tid, get<2>(op));
+#else
+    block_reduce_detail::Dispatcher<N>::reductor::template reduce<
+            const tuple<P0, P1, P2>&,
+            const tuple<R0, R1, R2>&,
+            const tuple<Op0, Op1, Op2>&>(smem, val, tid, op);
+#endif
+}
+
+template <int N, typename P0, typename P1, typename P2, typename P3, typename R0, typename R1, typename R2, typename R3, class Op0, class Op1, class Op2, class Op3>
+__device__ __forceinline__ void blockReduce(const tuple<P0, P1, P2, P3>& smem,
+                                            const tuple<R0, R1, R2, R3>& val,
+                                            uint tid,
+                                            const tuple<Op0, Op1, Op2, Op3>& op)
+{
+#ifdef DAS_ADAPT
+    blockReduce<N>(get<0>(smem), get<0>(val), tid, get<0>(op));
+    blockReduce<N>(get<1>(smem), get<1>(val), tid, get<1>(op));
+    blockReduce<N>(get<2>(smem), get<2>(val), tid, get<2>(op));
+    blockReduce<N>(get<3>(smem), get<3>(val), tid, get<3>(op));
+#else
+    block_reduce_detail::Dispatcher<N>::reductor::template reduce<
+            const tuple<P0, P1, P2, P3>&,
+            const tuple<R0, R1, R2, R3>&,
+            const tuple<Op0, Op1, Op2, Op3>&>(smem, val, tid, op);
+#endif
 }
 
 template <int N,
@@ -74,10 +197,18 @@ __device__ __forceinline__ void blockReduce(const tuple<P0, P1, P2, P3, P4, P5, 
                                             uint tid,
                                             const tuple<Op0, Op1, Op2, Op3, Op4, Op5, Op6, Op7, Op8, Op9>& op)
 {
+#ifndef DAS_ADAPT
     block_reduce_detail::Dispatcher<N>::reductor::template reduce<
             const tuple<P0, P1, P2, P3, P4, P5, P6, P7, P8, P9>&,
             const tuple<R0, R1, R2, R3, R4, R5, R6, R7, R8, R9>&,
             const tuple<Op0, Op1, Op2, Op3, Op4, Op5, Op6, Op7, Op8, Op9>&>(smem, val, tid, op);
+#else
+    block_reduce_compat::TupleReduce<N,
+            tuple<P0, P1, P2, P3, P4, P5, P6, P7, P8, P9>,
+            tuple<R0, R1, R2, R3, R4, R5, R6, R7, R8, R9>,
+            tuple<Op0, Op1, Op2, Op3, Op4, Op5, Op6, Op7, Op8, Op9>,
+            tuple_size< tuple<P0, P1, P2, P3, P4, P5, P6, P7, P8, P9> >::value>::run(smem, val, tid, op);
+#endif
 }
 
 // blockReduceKeyVal
@@ -102,6 +233,43 @@ __device__ __forceinline__ void blockReduceKeyVal(volatile K* skeys, K& key,
             const tuple<VP0, VP1, VP2, VP3, VP4, VP5, VP6, VP7, VP8, VP9>&,
             const tuple<VR0, VR1, VR2, VR3, VR4, VR5, VR6, VR7, VR8, VR9>&,
             const Cmp&>(skeys, key, svals, val, tid, cmp);
+}
+
+template <int N,
+          typename KP0, typename KP1,
+          typename KR0, typename KR1,
+          typename VP0, typename VP1,
+          typename VR0, typename VR1,
+          class Cmp0, class Cmp1>
+__device__ __forceinline__ void blockReduceKeyVal(const tuple<KP0, KP1>& skeys,
+                                                  const tuple<KR0, KR1>& key,
+                                                  const tuple<VP0, VP1>& svals,
+                                                  const tuple<VR0, VR1>& val,
+                                                  uint tid,
+                                                  const tuple<Cmp0, Cmp1>& cmp)
+{
+#ifdef DAS_ADAPT
+    typedef typename std::remove_cv<typename std::remove_pointer<VP0>::type>::type V0;
+    typedef typename std::remove_cv<typename std::remove_pointer<VP1>::type>::type V1;
+    typedef typename std::remove_cv<typename std::remove_reference<VR0>::type>::type R0;
+    typedef typename std::remove_cv<typename std::remove_reference<VR1>::type>::type R1;
+
+    V0 val0 = static_cast<V0>(get<0>(val));
+    V1 val1 = static_cast<V1>(get<1>(val));
+
+    blockReduceKeyVal<N>(get<0>(skeys), get<0>(key), get<0>(svals), val0, tid, get<0>(cmp));
+    blockReduceKeyVal<N>(get<1>(skeys), get<1>(key), get<1>(svals), val1, tid, get<1>(cmp));
+
+    get<0>(val) = static_cast<R0>(val0);
+    get<1>(val) = static_cast<R1>(val1);
+#else
+    block_reduce_key_val_detail::Dispatcher<N>::reductor::template reduce<
+            const tuple<KP0, KP1>&,
+            const tuple<KR0, KR1>&,
+            const tuple<VP0, VP1>&,
+            const tuple<VR0, VR1>&,
+            const tuple<Cmp0, Cmp1>&>(skeys, key, svals, val, tid, cmp);
+#endif
 }
 
 template <int N,

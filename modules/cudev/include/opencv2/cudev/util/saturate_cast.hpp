@@ -86,15 +86,29 @@ template <> __device__ __forceinline__ uchar saturate_cast<uchar>(ushort v)
 }
 template <> __device__ __forceinline__ uchar saturate_cast<uchar>(int v)
 {
+#ifdef DAS_ADAPT
+    if (v < 0)
+        return 0;
+    if (v > UCHAR_MAX)
+        return UCHAR_MAX;
+    return static_cast<uchar>(v);
+#else
     uint res = 0;
     asm("cvt.sat.u8.s32 %0, %1;" : "=r"(res) : "r"(v));
     return res;
+#endif
 }
 template <> __device__ __forceinline__ uchar saturate_cast<uchar>(uint v)
 {
+#ifdef DAS_ADAPT
+    if (v > UCHAR_MAX)
+        return UCHAR_MAX;
+    return static_cast<uchar>(v);
+#else
     uint res = 0;
     asm("cvt.sat.u8.u32 %0, %1;" : "=r"(res) : "r"(v));
     return res;
+#endif
 }
 template <> __device__ __forceinline__ uchar saturate_cast<uchar>(float v)
 {

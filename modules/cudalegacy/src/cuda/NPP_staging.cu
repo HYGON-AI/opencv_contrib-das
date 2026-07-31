@@ -185,7 +185,11 @@ __global__ void scanRows(cv::cudev::TexturePtr<Ncv8u> tex8u, T_in *d_src, Ncv32u
             //load elements
             curElem = readElem<T_in>(tex8u, d_src, texOffs, srcStride, curElemOffs);
         }
+#ifdef DAS_ADAPT
+        curElemMod = _scanElemOp<T_in, T_out>::template scanElemOp<tbDoSqr>(curElem);
+#else
         curElemMod = _scanElemOp<T_in, T_out>::scanElemOp<tbDoSqr>(curElem);
+#endif
 
         //inclusive scan
         curScanElem = cv::cudev::blockScanInclusive<NUM_SCAN_THREADS>(curElemMod, shmem, threadIdx.x);

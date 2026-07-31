@@ -132,7 +132,13 @@ namespace cv { namespace cuda { namespace device
                 int* srow2 = smem2 + threadIdx.y * blockDim.x;
 
                 plus<int> op;
+#ifdef DAS_ADAPT
+                reduce<32>(srow0, a, threadIdx.x, op);
+                reduce<32>(srow1, b, threadIdx.x, op);
+                reduce<32>(srow2, c, threadIdx.x, op);
+#else
                 reduce<32>(smem_tuple(srow0, srow1, srow2), thrust::tie(a, b, c), threadIdx.x, thrust::make_tuple(op, op, op));
+#endif
 
                 if (threadIdx.x == 0)
                 {
@@ -210,7 +216,12 @@ namespace cv { namespace cuda { namespace device
                         m_sum += u * (val_plus + val_minus);
                     }
 
+#ifdef DAS_ADAPT
+                    reduce<32>(srow0, v_sum, threadIdx.x, op);
+                    reduce<32>(srow1, m_sum, threadIdx.x, op);
+#else
                     reduce<32>(smem_tuple(srow0, srow1), thrust::tie(v_sum, m_sum), threadIdx.x, thrust::make_tuple(op, op));
+#endif
 
                     m_10 += m_sum;
                     m_01 += v * v_sum;

@@ -137,9 +137,9 @@ __device__ __forceinline__ uint vadd2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vadd2.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vadd.u32.u32.u32.sat %0.h0, %1.h0, %2.h0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vadd.u32.u32.u32.sat %0.h1, %1.h1, %2.h1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
@@ -158,9 +158,9 @@ __device__ __forceinline__ uint vsub2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vsub2.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vsub.u32.u32.u32.sat %0.h0, %1.h0, %2.h0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vsub.u32.u32.u32.sat %0.h1, %1.h1, %2.h1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
@@ -179,9 +179,9 @@ __device__ __forceinline__ uint vabsdiff2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vabsdiff2.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vabsdiff.u32.u32.u32.sat %0.h0, %1.h0, %2.h0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vabsdiff.u32.u32.u32.sat %0.h1, %1.h1, %2.h1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
@@ -221,7 +221,7 @@ __device__ __forceinline__ uint vavrg2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vavrg2.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // HAKMEM #23: a + b = 2 * (a | b) - (a ^ b) ==>
@@ -241,7 +241,7 @@ __device__ __forceinline__ uint vseteq2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset2.u32.u32.eq %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // inspired by Alan Mycroft's null-byte detection algorithm:
@@ -286,11 +286,15 @@ __device__ __forceinline__ uint vsetge2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset2.u32.u32.ge %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavrg2(a, b);   // (a + ~b + 1) / 2 = (a - b) / 2
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert to bool
@@ -308,7 +312,11 @@ __device__ __forceinline__ uint vcmpge2(uint a, uint b)
     c = r << 16;        // convert bool
     r = c - r;          //  into mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavrg2(a, b);   // (a + ~b + 1) / 2 = (a - b) / 2
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert
@@ -323,11 +331,15 @@ __device__ __forceinline__ uint vsetgt2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset2.u32.u32.gt %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavg2(a, b);    // (a + ~b) / 2 = (a - b) / 2 [rounded down]
     c = c & 0x80008000; // msbs = carry-outs
     r = c >> 15;        // convert to bool
@@ -345,7 +357,11 @@ __device__ __forceinline__ uint vcmpgt2(uint a, uint b)
     c = r << 16;        // convert bool
     r = c - r;          //  into mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavg2(a, b);    // (a + ~b) / 2 = (a - b) / 2 [rounded down]
     c = c & 0x80008000; // msbs = carry-outs
     r = c >> 15;        // convert
@@ -360,11 +376,15 @@ __device__ __forceinline__ uint vsetle2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset2.u32.u32.le %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavrg2(a, b);   // (b + ~a + 1) / 2 = (b - a) / 2
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert to bool
@@ -382,7 +402,11 @@ __device__ __forceinline__ uint vcmple2(uint a, uint b)
     c = r << 16;        // convert bool
     r = c - r;          //  into mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavrg2(a, b);   // (b + ~a + 1) / 2 = (b - a) / 2
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert
@@ -397,11 +421,15 @@ __device__ __forceinline__ uint vsetlt2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset2.u32.u32.lt %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavg2(a, b);    // (b + ~a) / 2 = (b - a) / 2 [rounded down]
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert to bool
@@ -419,7 +447,11 @@ __device__ __forceinline__ uint vcmplt2(uint a, uint b)
     c = r << 16;        // convert bool
     r = c - r;          //  into mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavg2(a, b);    // (b + ~a) / 2 = (b - a) / 2 [rounded down]
     c = c & 0x80008000; // msb = carry-outs
     r = c >> 15;        // convert
@@ -434,7 +466,7 @@ __device__ __forceinline__ uint vsetne2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm ("vset2.u32.u32.ne %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // inspired by Alan Mycroft's null-byte detection algorithm:
@@ -479,9 +511,9 @@ __device__ __forceinline__ uint vmax2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vmax2.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vmax.u32.u32.u32 %0.h0, %1.h0, %2.h0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmax.u32.u32.u32 %0.h1, %1.h1, %2.h1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
@@ -502,9 +534,9 @@ __device__ __forceinline__ uint vmin2(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vmin2.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vmin.u32.u32.u32 %0.h0, %1.h0, %2.h0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmin.u32.u32.u32 %0.h1, %1.h1, %2.h1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
@@ -527,21 +559,21 @@ __device__ __forceinline__ uint vadd4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vadd4.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vadd.u32.u32.u32.sat %0.b0, %1.b0, %2.b0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vadd.u32.u32.u32.sat %0.b1, %1.b1, %2.b1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vadd.u32.u32.u32.sat %0.b2, %1.b2, %2.b2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vadd.u32.u32.u32.sat %0.b3, %1.b3, %2.b3, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
-    uint s, t;
-    s = a ^ b;          // sum bits
-    r = a & 0x7f7f7f7f; // clear msbs
-    t = b & 0x7f7f7f7f; // clear msbs
-    s = s & 0x80808080; // msb sum bits
-    r = r + t;          // add without msbs, record carry-out in msbs
-    r = r ^ s;          // sum of msb sum and carry-in bits, w/o carry-out
+    for (int i = 0; i < 4; ++i)
+    {
+        const uint av = (a >> (i * 8)) & 0xffU;
+        const uint bv = (b >> (i * 8)) & 0xffU;
+        const uint sum = av + bv;
+        r |= (sum > 0xffU ? 0xffU : sum) << (i * 8);
+    }
 #endif /* CV_CUDEV_ARCH >= 300 */
 
     return r;
@@ -551,9 +583,9 @@ __device__ __forceinline__ uint vsub4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vsub4.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vsub.u32.u32.u32.sat %0.b0, %1.b0, %2.b0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vsub.u32.u32.u32.sat %0.b1, %1.b1, %2.b1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vsub.u32.u32.u32.sat %0.b2, %1.b2, %2.b2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
@@ -590,7 +622,7 @@ __device__ __forceinline__ uint vavrg4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vavrg4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // HAKMEM #23: a + b = 2 * (a | b) - (a ^ b) ==>
@@ -610,7 +642,7 @@ __device__ __forceinline__ uint vseteq4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.eq %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // inspired by Alan Mycroft's null-byte detection algorithm:
@@ -655,11 +687,15 @@ __device__ __forceinline__ uint vsetle4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.le %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavrg4(a, b);   // (b + ~a + 1) / 2 = (b - a) / 2
     c = c & 0x80808080; // msb = carry-outs
     r = c >> 7;         // convert to bool
@@ -677,7 +713,11 @@ __device__ __forceinline__ uint vcmple4(uint a, uint b)
     c = r << 8;         // convert bool
     r = c - r;          //  to mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavrg4(a, b);   // (b + ~a + 1) / 2 = (b - a) / 2
     c = c & 0x80808080; // msbs = carry-outs
     r = c >> 7;         // convert
@@ -692,11 +732,15 @@ __device__ __forceinline__ uint vsetlt4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.lt %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavg4(a, b);    // (b + ~a) / 2 = (b - a) / 2 [rounded down]
     c = c & 0x80808080; // msb = carry-outs
     r = c >> 7;         // convert to bool
@@ -714,7 +758,11 @@ __device__ __forceinline__ uint vcmplt4(uint a, uint b)
     c = r << 8;         // convert bool
     r = c - r;          //  to mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(a));
+#else
+    a = ~a;
+#endif
     c = vavg4(a, b);    // (b + ~a) / 2 = (b - a) / 2 [rounded down]
     c = c & 0x80808080; // msbs = carry-outs
     r = c >> 7;         // convert
@@ -729,11 +777,15 @@ __device__ __forceinline__ uint vsetge4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.ge %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavrg4(a, b);   // (a + ~b + 1) / 2 = (a - b) / 2
     c = c & 0x80808080; // msb = carry-outs
     r = c >> 7;         // convert to bool
@@ -751,7 +803,11 @@ __device__ __forceinline__ uint vcmpge4(uint a, uint b)
     s = r << 8;         // convert bool
     r = s - r;          //  to mask
 #else
-    asm ("not.b32 %0,%0;" : "+r"(b));
+#ifndef DAS_ADAPT
+    asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     r = vavrg4 (a, b);  // (a + ~b + 1) / 2 = (a - b) / 2
     r = r & 0x80808080; // msb = carry-outs
     s = r >> 7;         // build mask
@@ -766,11 +822,15 @@ __device__ __forceinline__ uint vsetgt4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.gt %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     uint c;
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavg4(a, b);    // (a + ~b) / 2 = (a - b) / 2 [rounded down]
     c = c & 0x80808080; // msb = carry-outs
     r = c >> 7;         // convert to bool
@@ -788,7 +848,11 @@ __device__ __forceinline__ uint vcmpgt4(uint a, uint b)
     c = r << 8;         // convert bool
     r = c - r;          //  to mask
 #else
+#ifndef DAS_ADAPT
     asm("not.b32 %0, %0;" : "+r"(b));
+#else
+    b = ~b;
+#endif
     c = vavg4(a, b);    // (a + ~b) / 2 = (a - b) / 2 [rounded down]
     c = c & 0x80808080; // msb = carry-outs
     r = c >> 7;         // convert
@@ -803,7 +867,7 @@ __device__ __forceinline__ uint vsetne4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vset4.u32.u32.ne %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
 #else
     // inspired by Alan Mycroft's null-byte detection algorithm:
@@ -848,9 +912,9 @@ __device__ __forceinline__ uint vabsdiff4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vabsdiff4.u32.u32.u32.sat %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vabsdiff.u32.u32.u32.sat %0.b0, %1.b0, %2.b0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vabsdiff.u32.u32.u32.sat %0.b1, %1.b1, %2.b1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vabsdiff.u32.u32.u32.sat %0.b2, %1.b2, %2.b2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
@@ -871,9 +935,9 @@ __device__ __forceinline__ uint vmax4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vmax4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vmax.u32.u32.u32 %0.b0, %1.b0, %2.b0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmax.u32.u32.u32 %0.b1, %1.b1, %2.b1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmax.u32.u32.u32 %0.b2, %1.b2, %2.b2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
@@ -893,9 +957,9 @@ __device__ __forceinline__ uint vmin4(uint a, uint b)
 {
     uint r = 0;
 
-#if CV_CUDEV_ARCH >= 300
+#if (CV_CUDEV_ARCH >= 300) && (!defined(DAS_ADAPT))
     asm("vmin4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
-#elif CV_CUDEV_ARCH >= 200
+#elif (CV_CUDEV_ARCH >= 200) && (!defined(DAS_ADAPT))
     asm("vmin.u32.u32.u32 %0.b0, %1.b0, %2.b0, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmin.u32.u32.u32 %0.b1, %1.b1, %2.b1, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));
     asm("vmin.u32.u32.u32 %0.b2, %1.b2, %2.b2, %3;" : "=r"(r) : "r"(a), "r"(b), "r"(r));

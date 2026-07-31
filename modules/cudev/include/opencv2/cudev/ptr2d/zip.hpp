@@ -59,6 +59,7 @@ template <class PtrTuple> struct ZipPtr;
 
 template <class Ptr0, class Ptr1> struct ZipPtr< tuple<Ptr0, Ptr1> > : tuple<Ptr0, Ptr1>
 {
+    typedef tuple<Ptr0, Ptr1> tuple_type;
     typedef tuple<typename PtrTraits<Ptr0>::value_type,
                   typename PtrTraits<Ptr1>::value_type> value_type;
     typedef typename PtrTraits<Ptr0>::index_type        index_type;
@@ -74,6 +75,7 @@ template <class Ptr0, class Ptr1> struct ZipPtr< tuple<Ptr0, Ptr1> > : tuple<Ptr
 
 template <class Ptr0, class Ptr1, class Ptr2> struct ZipPtr< tuple<Ptr0, Ptr1, Ptr2> > : tuple<Ptr0, Ptr1, Ptr2>
 {
+    typedef tuple<Ptr0, Ptr1, Ptr2> tuple_type;
     typedef tuple<typename PtrTraits<Ptr0>::value_type,
                   typename PtrTraits<Ptr1>::value_type,
                   typename PtrTraits<Ptr2>::value_type> value_type;
@@ -90,6 +92,7 @@ template <class Ptr0, class Ptr1, class Ptr2> struct ZipPtr< tuple<Ptr0, Ptr1, P
 
 template <class Ptr0, class Ptr1, class Ptr2, class Ptr3> struct ZipPtr< tuple<Ptr0, Ptr1, Ptr2, Ptr3> > : tuple<Ptr0, Ptr1, Ptr2, Ptr3>
 {
+    typedef tuple<Ptr0, Ptr1, Ptr2, Ptr3> tuple_type;
     typedef tuple<typename PtrTraits<Ptr0>::value_type,
                   typename PtrTraits<Ptr1>::value_type,
                   typename PtrTraits<Ptr2>::value_type,
@@ -107,6 +110,7 @@ template <class Ptr0, class Ptr1, class Ptr2, class Ptr3> struct ZipPtr< tuple<P
 
 template <class PtrTuple> struct ZipPtrSz : ZipPtr<PtrTuple>
 {
+    typedef PtrTuple tuple_type;
     int rows, cols;
 
     __host__ __device__ __forceinline__ ZipPtrSz() {}

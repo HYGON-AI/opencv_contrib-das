@@ -369,7 +369,8 @@ namespace grid_transform_detail
         template <class SrcVal, class DstPtrTuple, class OpTuple>
         __device__ static void transform(const SrcVal& srcVal, DstPtrTuple& dst, const OpTuple& op, int y, int x)
         {
-            typedef typename tuple_element<count - 1, DstPtrTuple>::type dst_ptr_type;
+            typedef typename DstPtrTuple::tuple_type dst_tuple_type;
+            typedef typename tuple_element<count - 1, dst_tuple_type>::type dst_ptr_type;
             typedef typename PtrTraits<dst_ptr_type>::value_type dst_type;
 
             get<count - 1>(dst)(y, x) = saturate_cast<dst_type>(get<count - 1>(op)(srcVal));
@@ -395,7 +396,7 @@ namespace grid_transform_detail
 
         typename PtrTraits<SrcPtr>::value_type srcVal = src(y, x);
 
-        Unroll<tuple_size<DstPtrTuple>::value>::transform(srcVal, dst, op, y, x);
+        Unroll<TupleTraits<DstPtrTuple>::size>::transform(srcVal, dst, op, y, x);
     }
 
     template <class Policy, class SrcPtrTuple, class DstPtrTuple, class OpTuple, class MaskPtr>

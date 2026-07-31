@@ -59,11 +59,24 @@ namespace cv { namespace cudev {
 
 //! @addtogroup cudev
 //! @{
+#ifdef DAS_ADAPT
+template <class SrcPtrTuple> struct GridMergeTupleTraits
+{
+    typedef typename SrcPtrTuple::tuple_type tuple_type;
+    enum { size = tuple_size<tuple_type>::value };
+};
+#else
+template <class SrcPtrTuple> struct GridMergeTupleTraits
+{
+    enum { size = tuple_size<SrcPtrTuple>::value };
+};
+#endif
+
 
 template <class Policy, class SrcPtrTuple, typename DstType, class MaskPtr>
 __host__ void gridMerge_(const SrcPtrTuple& src, GpuMat_<DstType>& dst, const MaskPtr& mask, Stream& stream = Stream::Null())
 {
-    CV_StaticAssert( VecTraits<DstType>::cn == tuple_size<SrcPtrTuple>::value, "" );
+    CV_StaticAssert( VecTraits<DstType>::cn == GridMergeTupleTraits<SrcPtrTuple>::size, "" );
 
     const int rows = getRows(src);
     const int cols = getCols(src);
@@ -82,7 +95,7 @@ __host__ void gridMerge_(const SrcPtrTuple& src, GpuMat_<DstType>& dst, const Ma
 template <class Policy, class SrcPtrTuple, typename DstType, class MaskPtr>
 __host__ void gridMerge_(const SrcPtrTuple& src, const GlobPtrSz<DstType>& dst, const MaskPtr& mask, Stream& stream = Stream::Null())
 {
-    CV_StaticAssert( VecTraits<DstType>::cn == tuple_size<SrcPtrTuple>::value, "" );
+    CV_StaticAssert( VecTraits<DstType>::cn == GridMergeTupleTraits<SrcPtrTuple>::size, "" );
 
     const int rows = getRows(src);
     const int cols = getCols(src);
@@ -100,7 +113,7 @@ __host__ void gridMerge_(const SrcPtrTuple& src, const GlobPtrSz<DstType>& dst, 
 template <class Policy, class SrcPtrTuple, typename DstType>
 __host__ void gridMerge_(const SrcPtrTuple& src, GpuMat_<DstType>& dst, Stream& stream = Stream::Null())
 {
-    CV_StaticAssert( VecTraits<DstType>::cn == tuple_size<SrcPtrTuple>::value, "" );
+    CV_StaticAssert( VecTraits<DstType>::cn == GridMergeTupleTraits<SrcPtrTuple>::size, "" );
 
     const int rows = getRows(src);
     const int cols = getCols(src);
@@ -117,7 +130,7 @@ __host__ void gridMerge_(const SrcPtrTuple& src, GpuMat_<DstType>& dst, Stream& 
 template <class Policy, class SrcPtrTuple, typename DstType>
 __host__ void gridMerge_(const SrcPtrTuple& src, const GlobPtrSz<DstType>& dst, Stream& stream = Stream::Null())
 {
-    CV_StaticAssert( VecTraits<DstType>::cn == tuple_size<SrcPtrTuple>::value, "" );
+    CV_StaticAssert( VecTraits<DstType>::cn == GridMergeTupleTraits<SrcPtrTuple>::size, "" );
 
     const int rows = getRows(src);
     const int cols = getCols(src);
