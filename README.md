@@ -1,11 +1,19 @@
 ## Repository for OpenCV's extra modules
 
-**This is a HCU-adapted fork of [opencv/opencv_contrib](https://github.com/opencv/opencv_contrib).**
+### Open Source Attribution
 
-- Modified by Hygon Information Technology Co., Ltd. for HCU platform support.
-- The upstream opencv_contrib project is maintained by the OpenCV team.
-- This fork is based on the 4.9.0 release.
-- Key modifications include HCU/HIP backend build support.
+This repository is based on [opencv/opencv_contrib](https://github.com/opencv/opencv_contrib)
+and contains Hygon-maintained changes for HCU/ROCm environments. `opencv_contrib`
+is derived from the upstream [opencv_contrib](https://github.com/opencv/opencv_contrib/tree/4.9.0)
+project.
+
+- Modified by Hygon Information Technology Co., Ltd., 2026.
+- Direct upstream: [opencv_contrib](https://github.com/opencv/opencv_contrib/tree/4.9.0)
+- Upstream branch: `4.x`
+- Upstream tag: `4.9.0`
+- Upstream baseline commit: `c7602a8f74205e44389bd6a4e8d727d32e7e27b4`
+- Third-party inventory: THIRD_PARTY_NOTICES.md
+- License: Apache-2.0
 
 This repository is intended for the development of so-called "extra" modules,
 contributed functionality. New modules quite often do not have stable API,
